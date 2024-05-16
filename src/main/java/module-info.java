@@ -26,5 +26,7 @@ module net.digimonworld.decode.decode_tools {
     requires org.lwjgl.assimp;
     requires jgltf.model;
     requires jgltf.impl.v2;
+	requires org.json;
+	requires org.joml;
 
 }

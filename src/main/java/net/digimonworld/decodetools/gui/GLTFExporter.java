@@ -21,6 +21,7 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -48,6 +49,7 @@ import de.javagl.jgltf.impl.v2.Skin;
 import de.javagl.jgltf.impl.v2.Texture;
 import de.javagl.jgltf.impl.v2.TextureInfo;
 import de.javagl.jgltf.model.io.GltfWriter;
+import net.digimonworld.decodetools.Main;
 import net.digimonworld.decodetools.core.Vector4;
 import net.digimonworld.decodetools.res.kcap.HSMPKCAP;
 import net.digimonworld.decodetools.res.payload.GMIOPayload;
@@ -58,11 +60,13 @@ import net.digimonworld.decodetools.res.payload.RTCLPayload;
 import net.digimonworld.decodetools.res.payload.TNOJPayload;
 import net.digimonworld.decodetools.res.payload.XDIOPayload;
 import net.digimonworld.decodetools.res.payload.XTVOPayload;
+import net.digimonworld.decodetools.res.payload.hsem.HSEM07Entry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMDrawEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMJointEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMMaterialEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMTextureEntry;
+import net.digimonworld.decodetools.res.payload.hsem.HSEMMaterialEntry;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVOAttribute;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVORegisterType;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVOVertex;
@@ -74,9 +78,9 @@ public class GLTFExporter {
     private final GlTF instance;
 
     private Map<Short, Short> jointAssignment = new HashMap<>();
-    private Map<Short, Short> textureAssignment = new HashMap<>();
-    private HSEMMaterialEntry activeMaterial = null;
 
+    private short activeMaterial=-1;
+    private Map<Short, Short> currentTexture = new HashMap<>();
     private int geomId = 0;
     private Node rootNode = new Node();
 
@@ -195,14 +199,21 @@ public class GLTFExporter {
             float[] scale = new float[] { j.getLocalScaleX(), j.getLocalScaleY(), j.getLocalScaleZ() };
             float[] translation = new float[] { j.getXOffset(), j.getYOffset(), j.getZOffset() };
 
+            Main.LOGGER.info("Joint " + i + " Rotation: " + Arrays.toString(rotation));
+            Main.LOGGER.info("Joint " + i + " Scale: " + Arrays.toString(scale));
+            Main.LOGGER.info("Joint " + i + " Translation: " + Arrays.toString(translation));
+            
             Node node = new Node();
             node.setName(j.getName());
             node.setScale(scale);
             node.setRotation(rotation);
             node.setTranslation(translation);
             instance.addNodes(node);
+  
+  
             jointsSkin.addJoints(instance.getNodes().size() - 1);
-
+       
+            
             matrixList.add(j.getOffsetMatrix());
 
             if (j.getParentId() != -1) {
@@ -219,6 +230,14 @@ public class GLTFExporter {
         int bindAccessor = createAccessor(bindPoseBufferView, GL_FLOAT, matrixList.size(), "MAT4", "BINDS");
         jointsSkin.setInverseBindMatrices(bindAccessor);
         instance.addSkins(jointsSkin);
+        printInverseBindMatrices(matrixList);
+    }
+    
+    private void printInverseBindMatrices(List<float[]> matrixList) {
+        System.out.println("Inverse Bind Matrices:");
+        for (float[] matrix : matrixList) {
+            System.out.println(Arrays.toString(matrix));
+        }
     }
 
     private void createLocations() {
@@ -233,7 +252,7 @@ public class GLTFExporter {
 
             Node node = new Node();
             node.setName(loc.getName());
-            // gltf prefers for default transoform matrices to be not specified
+            // gltf prefers for default transform matrices to be not specified
             if (!isIdentityMatrix(loc.getMatrix()))
                 node.setMatrix(mirrorMatrix(loc.getMatrix()));
             node.setExtras(extra);
@@ -249,21 +268,26 @@ public class GLTFExporter {
         }
     }
 
+
     private void createGeometry() {
-        for (HSEMPayload hsem : hsmp.getHSEM().getHSEMEntries()) {
+        for (HSEMPayload hsem : hsmp.getHSEM().getHSEMEntries()) {  
+        	jointAssignment.clear();
+            currentTexture.clear(); // Reset at the start of each new mesh processing                
+            activeMaterial = -1; // Reset at the start of each new mesh processing
             Map<String, String> extra = new HashMap<>();
             extra.put("id", Integer.toString(hsem.getId()));
-            extra.put("unk1", Integer.toString(hsem.getUnknown1()));
+            extra.put("unk1_1", Integer.toString(hsem.getUnknown1_1()));
+            extra.put("unk1_2", Integer.toString(hsem.getUnknown1_2()));
+            extra.put("unk1_3", Integer.toString(hsem.getUnknown1_3()));
             extra.put("unk2", Integer.toString(hsem.getUnknown2()));
             extra.put("unk3", Integer.toString(hsem.getUnknown3()));
-            extra.put("unk4", Integer.toString(hsem.getUnknown4()));
-            extra.put("unk5", Integer.toString(hsem.getUnknown5()));
             extra.put("headerData", floatArrayToString(hsem.getHeaderData()));
 
             for (HSEMEntry entry : hsem.getEntries())
-                processHSEM(entry, extra);
-
-        }
+            {
+            processHSEM(entry, extra);
+          
+            }}
     }
 
     private void processHSEMDraw(HSEMDrawEntry draw, Map<String, String> hsemExtra) {
@@ -345,22 +369,42 @@ public class GLTFExporter {
             primitive.addAttributes("JOINTS_0", jointsAccessor);
         }
 
-        // TODO deal with materials proper, support multiple textures and LRTM
-        if (textureAssignment.getOrDefault((short) 0, (short) -1) != -1)
-            primitive.setMaterial(textureAssignment.get((short) 0).intValue());
-
+       
+        
+        if (!currentTexture.isEmpty()) {
+            List<String> texEntries = new ArrayList<>(); // Create a list to hold all texture entries
+            for (Map.Entry<Short, Short> textureEntry : currentTexture.entrySet()) {
+                // Format each entry as "key value" and add to the list
+            	  if (textureEntry.getKey() == 0) {
+                      primitive.setMaterial((int) textureEntry.getValue());  // Set material from specific texture role
+                  }  
+                texEntries.add(textureEntry.getKey().toString() + " " + textureEntry.getValue().toString());
+            }
+            // Convert the list to a single string and store it in 'extra' under the key 'texEntry'
+            extra.put("texEntry", String.join(", ", texEntries));
+        }
+            
+                        
         Mesh mesh = new Mesh();
         mesh.setExtras(extra);
         mesh.addPrimitives(primitive);
         instance.addMeshes(mesh);
 
         Node node = new Node();
-        node.setName("geom-" + geomId++);
+        node.setName("geom "+ geomId++);
         node.setMesh(instance.getMeshes().size() - 1);
+        
+        int meshId= instance.getMeshes().size() - 1;
+        extra.put("meshId",  Integer.toString(meshId));
+        
+        
+        extra.put("materialId" , Integer.toString(activeMaterial));
         if (xtvo.getAttribute(XTVORegisterType.IDX).isPresent())
-            node.setSkin(0);
+        node.setSkin(0);
         instance.addNodes(node);
         rootNode.addChildren(instance.getNodes().size() - 1);
+        
+        
     }
 
     private void processHSEM(HSEMEntry entry, Map<String, String> extra) {
@@ -369,22 +413,31 @@ public class GLTFExporter {
             // unknown/unhandled
             case UNK03:
             case UNK07:
+                if (entry instanceof HSEM07Entry) {
+                    HSEM07Entry hsem07 = (HSEM07Entry) entry;
+                    extra.put("hsem07_unk1", Short.toString(hsem07.getUnkn1()));
+                    extra.put("hsem07_unk2", Short.toString(hsem07.getUnkn2()));
+                    extra.put("hsem07_unk3", Short.toString(hsem07.getUnkn3()));
+                    extra.put("hsem07_unk4", Short.toString(hsem07.getUnkn4()));
+                }
                 break;
 
             case JOINT:
-                ((HSEMJointEntry) entry).getJointAssignment().forEach(jointAssignment::put);
+                ((HSEMJointEntry) entry).getJointAssignment().forEach(jointAssignment::put);               
                 break;
 
-            case TEXTURE:
-                ((HSEMTextureEntry) entry).getTextureAssignment().forEach(textureAssignment::put);
+            case TEXTURE:            
+                currentTexture.putAll(((HSEMTextureEntry) entry).getTextureAssignment());
+             
                 break;
 
             case MATERIAL:
-                activeMaterial = ((HSEMMaterialEntry) entry);
+                HSEMMaterialEntry materialEntry = (HSEMMaterialEntry) entry;
+                activeMaterial = materialEntry.getMaterialId();
                 break;
 
             case DRAW:
-                processHSEMDraw((HSEMDrawEntry) entry, extra);
+                          processHSEMDraw((HSEMDrawEntry) entry, extra);
                 break;
         }
 
@@ -532,12 +585,13 @@ public class GLTFExporter {
             Entry<XTVOAttribute, List<Number>> weight = vertex.getParameter(XTVORegisterType.WEIGHT);
 
             for (int j = 0; j < 4; j++) {
-                int joint = jointMapping.get((short) (entry.getValue().get(j).intValue() / 3));
+                 int joint = jointMapping.get((short) (entry.getValue().get(j).intValue() / 3));
+          
                 if (weight.getValue().get(j).floatValue() != 0.0f)
                     jointsBuffer.put((byte) joint);
                 else
                     jointsBuffer.put((byte) 0);
-            }
+               }
         }
         jointsBuffer.flip();
 
@@ -548,6 +602,9 @@ public class GLTFExporter {
 
         return instance.getBuffers().size() - 1;
     }
+
+
+    
 
     private int matrixListToBuffer(List<float[]> matrices) {
         ByteBuffer mBuffer = ByteBuffer.allocate(matrices.size() * 16 * 4);

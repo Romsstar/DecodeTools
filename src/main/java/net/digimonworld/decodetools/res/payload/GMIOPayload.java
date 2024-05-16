@@ -235,6 +235,11 @@ public class GMIOPayload extends NameablePayload {
     }
     
     public BufferedImage getImage() {
+        if (image == null) {
+            BufferedImage placeholder = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+            placeholder.setRGB(0, 0, 0x00000000); // ARGB for transparent pixel
+            return placeholder;
+        }
         return image;
     }
     

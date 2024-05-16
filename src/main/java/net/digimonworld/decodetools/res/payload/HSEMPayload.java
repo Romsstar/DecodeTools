@@ -37,9 +37,9 @@ public class HSEMPayload extends ResPayload {
     private int id;
     // int size
     // int numEntries;
-    private short unknown1;
-    private byte unknown2;
-    private byte unknown3;
+    private short unknown1_1;
+    private byte unknown1_2;
+    private byte unknown1_3;
 
     /*
      * visible distance X?
@@ -48,22 +48,22 @@ public class HSEMPayload extends ResPayload {
      * rotation something?
      */
     private float[] headerData = new float[10];
-    private int unknown4;
-    private int unknown5;
+    private int unknown2;
+    private int unknown3;
 
     private List<HSEMEntry> entries = new ArrayList<>();
 
-    public HSEMPayload(AbstractKCAP parent, List<HSEMEntry> entries, int id, short unknown2_1, byte unknown2_2,
-                       byte unknown2_3, float[] headerData, int unknown3, int unknown4) {
+    public HSEMPayload(AbstractKCAP parent, List<HSEMEntry> entries, int id, short unknown1_1, byte unknown1_2,
+                       byte unknown1_3, float[] headerData, int unknown2, int unknown3) {
         super(parent);
 
         this.id = id;
-        this.unknown1 = unknown2_1;
-        this.unknown2 = unknown2_2;
-        this.unknown2 = unknown2_3;
+        this.unknown1_1 = unknown1_1;
+        this.unknown1_2 =  unknown1_2;
+        this.unknown1_3 =  unknown1_3;
         this.headerData = Arrays.copyOf(headerData, 10);
-        this.unknown4 = unknown3;
-        this.unknown5 = unknown4;
+        this.unknown2 = unknown2;
+        this.unknown3 = unknown3;
         this.entries.addAll(entries);
     }
 
@@ -75,16 +75,16 @@ public class HSEMPayload extends ResPayload {
         this.id = source.readInteger();
         source.readInteger();
         int numEntries = source.readInteger();
-        this.unknown1 = source.readShort();
-        this.unknown2 = source.readByte();
-        this.unknown3 = source.readByte();
+        this.unknown1_1 = source.readShort();
+        this.unknown1_2 = source.readByte();
+        this.unknown1_3 = source.readByte();
 
         for (int i = 0; i < 10; i++) {
             this.headerData[i] = source.readFloat();
         }
 
-        this.unknown4 = source.readInteger();
-        this.unknown5 = source.readInteger();
+        this.unknown2 = source.readInteger();
+        this.unknown3 = source.readInteger();
 
         for (int i = 0; i < numEntries; i++)
             entries.add(HSEMEntry.loadEntry(source));
@@ -109,15 +109,15 @@ public class HSEMPayload extends ResPayload {
         dest.writeInteger(getSize());
 
         dest.writeInteger(entries.size());
-        dest.writeShort(unknown1);
-        dest.writeByte(unknown2);
-        dest.writeByte(unknown3);
+        dest.writeShort(unknown1_1);
+        dest.writeByte(unknown1_2);
+        dest.writeByte(unknown1_3);
 
         for (float f : headerData)
             dest.writeFloat(f);
 
-        dest.writeInteger(unknown4);
-        dest.writeInteger(unknown5);
+        dest.writeInteger(unknown2);
+        dest.writeInteger(unknown3);
 
         entries.forEach(a -> a.writeKCAP(dest));
     }
@@ -134,23 +134,23 @@ public class HSEMPayload extends ResPayload {
         return id;
     }
 
-    public int getUnknown1() {
-        return unknown1;
+    public int getUnknown1_1() {
+        return unknown1_1;
     }
 
-    public short getUnknown2() {
+    public short getUnknown1_2() {
+        return unknown1_2;
+    }
+
+    public byte getUnknown1_3() {
+        return unknown1_3;
+    }
+
+    public int getUnknown2() {
         return unknown2;
     }
 
-    public byte getUnknown3() {
+    public int getUnknown3() {
         return unknown3;
-    }
-
-    public int getUnknown4() {
-        return unknown4;
-    }
-
-    public int getUnknown5() {
-        return unknown5;
     }
 }

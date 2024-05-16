@@ -24,15 +24,20 @@ public class HSEMPanel extends PayloadPanel {
     private final JScrollPane scrollPane = new JScrollPane();
     private final JLabel lblNewLabel = new JLabel("ID:");
     private final JLabel idLabel = new JLabel("<idLabel>");
-    private final JLabel lblUnk = new JLabel("Unk2:");
-    private final JLabel unk2label = new JLabel("<unk2Label>");
-    private final JLabel lblUnk_2 = new JLabel("Unk3:");
-    private final JLabel unk3label = new JLabel("<unk3Label>");
-    private final JLabel lblUnk_2_1 = new JLabel("Unk4:");
-    private final JLabel unk4label = new JLabel("<unk4Label>");
+    
+    private final JLabel lblUnk1 = new JLabel("Unk1:");
+    private final JLabel unk1_1label = new JLabel("<unk1_1>");   
+    private final JLabel unk1_2label = new JLabel("<unk1_2>");
+    private final JLabel unk1_3label = new JLabel("<unk1_3>");
+   
+    private final JLabel lblUnk_2 = new JLabel("Unk2:");  
+    private final JLabel unk2label = new JLabel("<unk2>");
+    
+    private final JLabel lblUnk3 = new JLabel("Unk3:");
+    private final JLabel unk3label = new JLabel("<unk3>");
+    
     private final JTextPane textPane = new JTextPane();
-    private final JLabel unk2_2label = new JLabel("<unk2_2>");
-    private final JLabel unk2_3label = new JLabel("0");
+  
 
     public HSEMPanel(Object obj) {
         setSelectedFile(obj);
@@ -51,21 +56,21 @@ public class HSEMPanel extends PayloadPanel {
                             .addPreferredGap(ComponentPlacement.RELATED)
                             .addComponent(idLabel))
                         .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblUnk)
+                            .addComponent(lblUnk1)
                             .addPreferredGap(ComponentPlacement.UNRELATED)
-                            .addComponent(unk2_2label)
+                            .addComponent(unk1_1label)
                             .addGap(18)
-                            .addComponent(unk2label, GroupLayout.PREFERRED_SIZE, 24, GroupLayout.PREFERRED_SIZE)
+                            .addComponent(unk1_2label, GroupLayout.PREFERRED_SIZE, 24, GroupLayout.PREFERRED_SIZE)
                             .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk2_3label, GroupLayout.PREFERRED_SIZE, 18, GroupLayout.PREFERRED_SIZE))
+                            .addComponent(unk1_3label, GroupLayout.PREFERRED_SIZE, 18, GroupLayout.PREFERRED_SIZE))
                         .addGroup(groupLayout.createSequentialGroup()
                             .addComponent(lblUnk_2, GroupLayout.PREFERRED_SIZE, 34, GroupLayout.PREFERRED_SIZE)
                             .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk3label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
+                            .addComponent(unk2label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
                         .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblUnk_2_1, GroupLayout.PREFERRED_SIZE, 34, GroupLayout.PREFERRED_SIZE)
+                            .addComponent(lblUnk3, GroupLayout.PREFERRED_SIZE, 34, GroupLayout.PREFERRED_SIZE)
                             .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk4label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
+                            .addComponent(unk3label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
                         .addComponent(textPane, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE))
                     .addContainerGap(68, Short.MAX_VALUE))
         );
@@ -81,18 +86,18 @@ public class HSEMPanel extends PayloadPanel {
                                 .addComponent(idLabel))
                             .addGap(4)
                             .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                                .addComponent(lblUnk)
-                                .addComponent(unk2_2label)
-                                .addComponent(unk2label)
-                                .addComponent(unk2_3label))
+                                .addComponent(lblUnk1)
+                                .addComponent(unk1_1label)
+                                .addComponent(unk1_2label)
+                                .addComponent(unk1_3label))
                             .addPreferredGap(ComponentPlacement.RELATED)
                             .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
                                 .addComponent(lblUnk_2)
-                                .addComponent(unk3label))
+                                .addComponent(unk2label))
                             .addPreferredGap(ComponentPlacement.RELATED)
                             .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                                .addComponent(lblUnk_2_1)
-                                .addComponent(unk4label))
+                                .addComponent(lblUnk3)
+                                .addComponent(unk3label))
                             .addGap(28)
                             .addComponent(textPane, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)))
                     .addContainerGap())
@@ -117,11 +122,11 @@ public class HSEMPanel extends PayloadPanel {
         list.setListData(selected.getEntries().toArray(new HSEMEntry[0]));
 
         idLabel.setText(Integer.toString(selected.getId()));
-        unk2label.setText(Integer.toString(selected.getUnknown1()));
-        unk2_2label.setText(Integer.toString(selected.getUnknown2()));
-        unk2_3label.setText(Integer.toString(selected.getUnknown3()));
-        unk3label.setText(Integer.toString(selected.getUnknown4()));
-        unk4label.setText(Integer.toString(selected.getUnknown5()));
+        unk1_1label.setText(Integer.toString(selected.getUnknown1_1()));
+        unk1_2label.setText(Integer.toString(selected.getUnknown1_2()));
+        unk1_3label.setText(Integer.toString(selected.getUnknown1_3()));
+        unk2label.setText(Integer.toString(selected.getUnknown2()));
+        unk3label.setText(Integer.toString(selected.getUnknown3()));
 
         float[] arr = selected.getHeaderData();
         String s = String.format("%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n", arr[0],
