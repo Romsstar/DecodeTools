@@ -40,6 +40,7 @@ import javax.swing.LayoutStyle.ComponentPlacement;
 import javax.swing.ListSelectionModel;
 
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.lwjgl.PointerBuffer;
@@ -105,8 +106,8 @@ import javax.swing.JComboBox;
 import javax.swing.DefaultComboBoxModel;
 
 public class ModelImporter extends PayloadPanel {
-    private static final float[] IDENTITY_MATRIX = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-            0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+	private static final float[] IDENTITY_MATRIX = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+			0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
 	private static final String[] JOINT_PREFIXES = { "J_", "AT_", };
 
 	private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate | Assimp.aiProcess_LimitBoneWeights
@@ -722,12 +723,15 @@ public class ModelImporter extends PayloadPanel {
 	private List<TNOJPayload> loadJoints(float scale, AIScene scene) {
 		List<TNOJPayload> tnojList = new ArrayList<>();
 		List<String> names = new ArrayList<>();
-		inverseMatrix.clear(); // Clear existing data to prepare for new loading
 
 		// Process each node to load joints and their corresponding bone matrices
 		for (AINode nodes : jointNodes) {
 			AINode parent = nodes.mParent();
 			AIMatrix4x4 trans = nodes.mTransformation();
+
+			Matrix4f globalTransform = computeGlobalTransform(nodes);
+			Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
+			float[] ibpm = matrixToArray(inverseBindMatrix);
 
 			String name = nodes.mName().dataString();
 
@@ -747,33 +751,10 @@ public class ModelImporter extends PayloadPanel {
 			float[] rotationQuat = { quat.x(), quat.y(), quat.z(), quat.w() };
 			float[] scaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
 			float[] localScaleVector = { scal.x(), scal.y(), scal.z(), 0.0f };
-
-			Main.LOGGER.info("Joint Name: " + name);
-			Main.LOGGER.info("Parent ID: " + parentId);
-			Main.LOGGER.info("Offset vector: " + Arrays.toString(offsetVector));
-			Main.LOGGER.info("Rotation quaternion: " + Arrays.toString(rotationQuat));
-			Main.LOGGER.info("Scale vector: " + Arrays.toString(scaleVector));
-			Main.LOGGER.info("Local scale vector: " + Arrays.toString(localScaleVector));
-
+			
 			if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1]))
 				continue;
 
-			// Populate joint bones map with data from all bones associated with each mesh
-			if (scene != null) {
-				PointerBuffer sceneMeshes = scene.mMeshes();
-				for (int i = 0; i < scene.mNumMeshes(); i++) {
-					AIMesh mesh = AIMesh.create(sceneMeshes.get(i));
-					for (int j = 0; j < mesh.mNumBones(); j++) {
-						AIBone bone = AIBone.create(mesh.mBones().get(j));
-						if (bone.mName().dataString().equals(name)) {
-							inverseMatrix.put(name, matrixToArray(bone.mOffsetMatrix()));
-
-						}
-					}
-				}
-			}
-
-			float[] ibpm = inverseMatrix.getOrDefault(name, IDENTITY_MATRIX);
 			names.add(name);
 
 			tnojList.add(new TNOJPayload(null, parentId, name, 0, 0, ibpm, offsetVector, rotationQuat, scaleVector,
@@ -784,15 +765,30 @@ public class ModelImporter extends PayloadPanel {
 		return tnojList;
 	}
 
-	private static float[] matrixToArray(AIMatrix4x4 matrix) {
-	    return new float[] {
-	        matrix.a1(), matrix.a2(), matrix.a3(), matrix.a4(),  // Row 1
-	        matrix.b1(), matrix.b2(), matrix.b3(), matrix.b4(),  // Row 2
-	        matrix.c1(), matrix.c2(), matrix.c3(), matrix.c4(),  // Row 3
-	        matrix.d1(), matrix.d2(), matrix.d3(), matrix.d4()   // Row 4
-	    };
+	private Matrix4f computeGlobalTransform(AINode node) {
+		Matrix4f globalTransform = new Matrix4f(aiMatrix4x4ToMatrix4f(node.mTransformation()));
+		AINode parent = node.mParent();
+		while (parent != null) {
+			Matrix4f parentTransform = aiMatrix4x4ToMatrix4f(parent.mTransformation());
+			globalTransform.mulLocal(parentTransform);
+			parent = parent.mParent();
+		}
+		return globalTransform;
 	}
 
+	private Matrix4f aiMatrix4x4ToMatrix4f(AIMatrix4x4 matrix) {
+		return new Matrix4f(matrix.a1(), matrix.a2(), matrix.a3(), matrix.a4(), // Row 1
+				matrix.b1(), matrix.b2(), matrix.b3(), matrix.b4(), // Row 2
+				matrix.c1(), matrix.c2(), matrix.c3(), matrix.c4(), // Row 3
+				matrix.d1(), matrix.d2(), matrix.d3(), matrix.d4() // Row 4
+		);
+	}
+
+	private float[] matrixToArray(Matrix4fc matrix) {
+		float[] array = new float[16];
+		matrix.get(array);
+		return array;
+	}
 
 	private void tnojToObj(PrintStream stream) {
 		int vertexOffset = 1;
