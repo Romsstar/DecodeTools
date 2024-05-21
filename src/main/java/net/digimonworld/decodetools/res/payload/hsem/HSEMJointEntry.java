@@ -5,6 +5,10 @@ import java.util.Map;
 
 import net.digimonworld.decodetools.core.Access;
 
+
+//mapping from Joint ID (as in TNOJ) to the joint ID used inside the vertex data
+//which is used because the game supports only up to 16 joints per batch
+
 public class HSEMJointEntry implements HSEMEntry {
     private short unkn1;
     // short jointCount

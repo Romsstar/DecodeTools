@@ -13,9 +13,11 @@ import static de.javagl.jgltf.model.GltfConstants.GL_CLAMP_TO_EDGE;
 import static de.javagl.jgltf.model.GltfConstants.GL_REPEAT;
 import static de.javagl.jgltf.model.GltfConstants.GL_MIRRORED_REPEAT;
 
+import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -60,6 +62,7 @@ import net.digimonworld.decodetools.res.payload.RTCLPayload;
 import net.digimonworld.decodetools.res.payload.TNOJPayload;
 import net.digimonworld.decodetools.res.payload.XDIOPayload;
 import net.digimonworld.decodetools.res.payload.XTVOPayload;
+import net.digimonworld.decodetools.res.payload.PADHPayload;
 import net.digimonworld.decodetools.res.payload.hsem.HSEM07Entry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMDrawEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMEntry;
@@ -100,6 +103,7 @@ public class GLTFExporter {
         catch (IOException e) {
             e.printStackTrace();
         }
+        
     }
 
     private void initialize() {
@@ -127,6 +131,39 @@ public class GLTFExporter {
         instance.setAsset(inputAsset);
     }
 
+    
+    private void exportCollision(PADHPayload padhPayload, String outputPath) throws IOException {
+        // Extract vertices and faces
+        List<float[]> vertices = new ArrayList<>();
+        List<int[]> faces = new ArrayList<>();
+
+        for (PADHPayload.MNKCSection section : padhPayload.getMNKCSections()) {
+            for (PADHPayload.MNKCVertex vertex : section.getVertices()) {
+                vertices.add(new float[]{vertex.getPosX(), vertex.getPosY(), vertex.getPosZ()});
+            }
+            for (PADHPayload.MNKCFace face : section.getFaces()) {
+                faces.add(new int[]{face.getVertex1(), face.getVertex2(), face.getVertex3()});
+            }
+        }
+     // Write to OBJ file
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputPath))) {
+            writer.write("# OBJ file generated from PADHPayload\n");
+
+            // Write vertices
+            for (float[] vertex : vertices) {
+                writer.write(String.format("v %f %f %f\n", vertex[0], vertex[1], vertex[2]));
+            }
+
+            // Write faces
+            for (int[] face : faces) {
+                writer.write(String.format("f %d %d %d\n", face[0], face[1], face[2]));
+            }
+        }
+    }
+    
+    
+
+        
     private void createTextures() {
         int imageId = 0;
         for (GMIOPayload gmio : hsmp.getGMIP().getGMIOEntries()) {

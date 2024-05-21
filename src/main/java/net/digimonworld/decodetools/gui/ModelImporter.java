@@ -41,38 +41,32 @@ import javax.swing.ListSelectionModel;
 
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.lwjgl.PointerBuffer;
+import org.joml.Vector3f;
 import org.lwjgl.assimp.AIBone;
 import org.lwjgl.assimp.AIColor4D;
 import org.lwjgl.assimp.AIFace;
 import org.lwjgl.assimp.AIMatrix4x4;
 import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AIMetaData;
-import org.lwjgl.assimp.AIMetaDataEntry;
+
 import org.lwjgl.assimp.AINode;
 import org.lwjgl.assimp.AIPropertyStore;
 import org.lwjgl.assimp.AIQuaternion;
 import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AISkeleton;
-import org.lwjgl.assimp.AIString;
-import org.lwjgl.assimp.AIString.Buffer;
+
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVertexWeight;
 import org.lwjgl.assimp.Assimp;
-import org.lwjgl.system.MemoryStack;
+
 
 import de.javagl.jgltf.model.GltfModel;
-import de.javagl.jgltf.model.io.GltfAsset;
-import de.javagl.jgltf.model.io.GltfAssetReader;
+
 import de.javagl.jgltf.model.io.GltfModelReader;
 import net.digimonworld.decodetools.Main;
 import net.digimonworld.decodetools.core.Utils;
 import net.digimonworld.decodetools.gui.HSEMData.HSEM07Data;
 import net.digimonworld.decodetools.gui.HSEMData.MeshInfo;
+import net.digimonworld.decodetools.gui.HSEMData.UnkData;
 import net.digimonworld.decodetools.gui.util.FunctionAction;
-import net.digimonworld.decodetools.gui.util.LinAlg.Vector3;
 import net.digimonworld.decodetools.res.ResPayload;
 import net.digimonworld.decodetools.res.kcap.HSEMKCAP;
 import net.digimonworld.decodetools.res.kcap.HSMPKCAP;
@@ -112,7 +106,8 @@ public class ModelImporter extends PayloadPanel {
 
     private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate | Assimp.aiProcess_LimitBoneWeights
                                             | Assimp.aiProcess_SplitByBoneCount
-                                            | Assimp.aiProcess_JoinIdenticalVertices;
+                                            | Assimp.aiProcess_JoinIdenticalVertices
+                                            |Assimp.aiProcess_OptimizeMeshes;
 
     private static final AIPropertyStore importProperties = Assimp.aiCreatePropertyStore();
     static {
@@ -532,10 +527,16 @@ public class ModelImporter extends PayloadPanel {
         int previousMaterialId = -1;
 
         for (int i = 0; i < scene.mNumMeshes(); i++) {
+           
             AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
 
             int materialId = mesh.mMaterialIndex();
             MeshInfo meshInfo = HSEMData.getMeshInfo(i);
+            
+            if (meshInfo == null) {
+                meshInfo = new MeshInfo(i, new HashMap<>(), materialId, (short) -1, new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4], new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0));
+            }  
+            
             short hsemId = meshInfo.hsemId;
 
             List<HSEMEntry> hsemEntry = groupedHsemPayload.computeIfAbsent(hsemId, k -> new ArrayList<>());
@@ -783,40 +784,44 @@ public class ModelImporter extends PayloadPanel {
 
         // Process each node to load joints and their corresponding bone matrices
         for (AINode nodes : jointNodes) {
-            AINode parent = nodes.mParent();
-            AIMatrix4x4 trans = nodes.mTransformation();
-
-            Matrix4f globalTransform = computeGlobalTransform(nodes);
-            Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
-            float[] ibpm = matrixToArray(inverseBindMatrix);
-
             String name = nodes.mName().dataString();
 
-            int parentId = parent != null ? names.indexOf(parent.mName().dataString()) : -1;
+            // Skip non-joint nodes early to avoid unnecessary processing
+            if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1])) {
+                continue;
+            }
 
-            if (parentId == -1 && parent != null && isJointNode(parent) && !isJointNode(nodes))
-                Main.LOGGER.severe(() -> "AINode " + name
-                                         + " order is invalid, parent node has not been processed yet.");
+            AINode parent = nodes.mParent();
+            if (parent != null) {
+                String parentName = parent.mName().dataString();
+                int parentId = names.indexOf(parentName);
 
-            // Decompose the transformation to get position, rotation, and scale
+                if (parentId == -1 && isJointNode(parent) && !isJointNode(nodes)) {
+                    Main.LOGGER.severe(() -> "AINode " + name + " order is invalid, parent node " + parentName + " has not been processed yet.");
+                    continue; // Skip this node as its parent hasn't been processed yet
+                }
+            }
+
+            
+            Matrix4f globalTransform = computeGlobalTransform(nodes);            
+            
+            Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
+                        
+            float[] ibpm = matrixToArray(inverseBindMatrix);
+
             AIVector3D pos = AIVector3D.create();
             AIQuaternion quat = AIQuaternion.create();
             AIVector3D scal = AIVector3D.create();
-            Assimp.aiDecomposeMatrix(trans, scal, quat, pos);
+            Assimp.aiDecomposeMatrix(nodes.mTransformation(), scal, quat, pos);
 
-            float[] offsetVector = { trans.a4() * scale, trans.b4() * scale, trans.c4() * scale, 0.0f };
+            float[] offsetVector = { nodes.mTransformation().a4() * scale, nodes.mTransformation().b4() * scale, nodes.mTransformation().c4() * scale, 0.0f };
             float[] rotationQuat = { quat.x(), quat.y(), quat.z(), quat.w() };
             float[] scaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
             float[] localScaleVector = { scal.x(), scal.y(), scal.z(), 0.0f };
 
-            if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1]))
-                continue;
-
             names.add(name);
 
-            tnojList.add(new TNOJPayload(null, parentId, name, 0, 0, ibpm, offsetVector, rotationQuat, scaleVector,
-                                         localScaleVector));
-
+            tnojList.add(new TNOJPayload(null, parent != null ? names.indexOf(parent.mName().dataString()) : -1, name, 0, 0, ibpm, offsetVector, rotationQuat, scaleVector, localScaleVector));
         }
 
         return tnojList;
@@ -843,6 +848,10 @@ public class ModelImporter extends PayloadPanel {
 
     private float[] matrixToArray(Matrix4fc matrix) {
         float[] array = new float[16];
+        if (matrix == null)
+        {
+            return IDENTITY_MATRIX;
+        }
         matrix.get(array);
         return array;
     }
