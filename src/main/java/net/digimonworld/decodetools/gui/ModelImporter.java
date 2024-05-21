@@ -533,9 +533,9 @@ public class ModelImporter extends PayloadPanel {
             int materialId = mesh.mMaterialIndex();
             MeshInfo meshInfo = HSEMData.getMeshInfo(i);
             
-            if (meshInfo == null) {
-                meshInfo = new MeshInfo(i, new HashMap<>(), materialId, (short) -1, new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4], new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0));
-            }  
+           // if (meshInfo == null) {
+         //       meshInfo = new MeshInfo(i, new HashMap<>(), materialId, (short) -1, new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4], new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0));
+         //   }  
             
             short hsemId = meshInfo.hsemId;
 
@@ -651,7 +651,7 @@ public class ModelImporter extends PayloadPanel {
                 faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
             }
 
-            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) comboBox.getSelectedItem(),
+            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int)meshInfo.shader,
                                             (short) 0x3001, (short) 0, 0x00010309, 0x73, 0x01));
             xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 

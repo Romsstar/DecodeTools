@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -23,9 +24,9 @@ public class HSEMData {
         HSEM07Data hsem07Data;
         float[] headerData;
         UnkData unkData;
-        
+        int shader;
           public MeshInfo(int meshId, Map<Integer, String> texIds, int materialId, short hsemId, HSEM07Data hsem07Data,
-                    float[] headerData, UnkData unkData) {
+                    float[] headerData, UnkData unkData, int shader) {
             this.meshId = meshId;
             this.texIds = texIds; // Updated
             this.materialId = materialId;
@@ -33,6 +34,7 @@ public class HSEMData {
             this.hsem07Data = hsem07Data;
             this.headerData = headerData;
             this.unkData = unkData;
+            this.shader=shader;
         }
         
          @Override
@@ -111,7 +113,7 @@ public class HSEMData {
                 short hsemId = (short) extras.optInt("id", -1);
                 int meshId = extras.optInt("meshId", -1);
                 int materialId = extras.optInt("materialId", -1);
-        
+                int shader = extras.optInt("shader",8);
                 
                 String texEntry = extras.optString("texEntry", "");
                 Map<Integer, String> texIds = parseTexEntry(texEntry);
@@ -124,7 +126,7 @@ public class HSEMData {
 
                 UnkData unkData = parseUnkData(extras);
                 
-                MeshInfo meshInfo = new MeshInfo(meshId, texIds, materialId, hsemId, hsem07Data, headerData, unkData);  
+                MeshInfo meshInfo = new MeshInfo(meshId, texIds, materialId, hsemId, hsem07Data, headerData, unkData,shader);  
                 System.out.println(meshInfo);
                 HSEMDataMap.put(i, meshInfo);
             }
@@ -155,7 +157,7 @@ public class HSEMData {
     public static Map<Integer, MeshInfo> getHSEMDataMap() {
         return HSEMDataMap;
     }
-    
+        
     public static MeshInfo getMeshInfo(int meshId) {
         return HSEMDataMap.get(meshId);
     }
