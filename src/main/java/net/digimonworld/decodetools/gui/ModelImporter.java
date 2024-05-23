@@ -67,6 +67,7 @@ import net.digimonworld.decodetools.gui.HSEMData.HSEM07Data;
 import net.digimonworld.decodetools.gui.HSEMData.MeshInfo;
 import net.digimonworld.decodetools.gui.HSEMData.UnkData;
 import net.digimonworld.decodetools.gui.util.FunctionAction;
+import net.digimonworld.decodetools.gui.util.LinAlg.Vector3;
 import net.digimonworld.decodetools.res.ResPayload;
 import net.digimonworld.decodetools.res.kcap.HSEMKCAP;
 import net.digimonworld.decodetools.res.kcap.HSMPKCAP;
@@ -121,7 +122,8 @@ public class ModelImporter extends PayloadPanel {
     // persistent, loaded or via GUI
     private List<AINode> jointNodes = new ArrayList<>();
     private Map<String, float[]> inverseMatrix = new HashMap<>();
-
+    private Map<String, float[]> jointBones = new HashMap<>();
+    
     // Swing garbage
     private final JLabel lblInput = new JLabel("Input:");
     private final JLabel lblnone = new JLabel("(None)");
@@ -291,7 +293,47 @@ public class ModelImporter extends PayloadPanel {
                 }
                 float scale = calculateModelScale();
                 spinner.setValue(scale);
+                org.lwjgl.PointerBuffer scene_meshes = scene.mMeshes();
+                for (int i = 0; i < scene.mNumMeshes(); ++i) {
+                    AIMesh mesh = AIMesh.create(scene_meshes.get(i));
+                    for (int j = 0; j < mesh.mNumBones(); ++j) {
+                        AIBone bone = AIBone.create(mesh.mBones().get(j));
+                        AIMatrix4x4 offsetMatrix = bone.mOffsetMatrix();
 
+                        // Here we're going to bake a scale into the inverse bind pose
+                        // Since we need to apply the scale the the translations only in the bind pose,
+                        // and the translations are mixed up with the rotations in the inverse bind pose,
+                        // AND because location-rotation matrices have very simple inverses...
+                        // We're going to un-invert the translation part of the inverse bind pose,
+                        // apply the scale,
+                        // and then re-invert
+                        // We'll ignore the rotation to save flops, since our baked-in scale won't affect the rotation
+
+                        // Set up the variables we're going to need
+                        Vector3 t = new Vector3(offsetMatrix.a4(), offsetMatrix.b4(), offsetMatrix.c4());
+                        Vector3 u = new Vector3(offsetMatrix.a1(), offsetMatrix.b1(), offsetMatrix.c1());
+                        Vector3 v = new Vector3(offsetMatrix.a2(), offsetMatrix.b2(), offsetMatrix.c2());
+                        Vector3 w = new Vector3(offsetMatrix.a3(), offsetMatrix.b3(), offsetMatrix.c3());
+
+                        // Retrieve the translation from the bind pose, and apply the scale
+                        Vector3 s = new Vector3(-u.dot(t) * scale, -v.dot(t) * scale, -w.dot(t) * scale);
+
+                        // Re-invert
+                        Vector3 x = new Vector3(offsetMatrix.a1(), offsetMatrix.a2(), offsetMatrix.a3());
+                        Vector3 y = new Vector3(offsetMatrix.b1(), offsetMatrix.b2(), offsetMatrix.b3());
+                        Vector3 z = new Vector3(offsetMatrix.c1(), offsetMatrix.c2(), offsetMatrix.c3());
+                        float t_x = -x.dot(s);
+                        float t_y = -y.dot(s);
+                        float t_z = -z.dot(s);
+
+                        // Save the matrix for later
+                        float[] ibpm = { offsetMatrix.a1(), offsetMatrix.a2(), offsetMatrix.a3(), t_x,
+                                         offsetMatrix.b1(), offsetMatrix.b2(), offsetMatrix.b3(), t_y,
+                                         offsetMatrix.c1(), offsetMatrix.c2(), offsetMatrix.c3(), t_z,
+                                         offsetMatrix.d1(), offsetMatrix.d2(), offsetMatrix.d3(), offsetMatrix.d4() };
+
+                        jointBones.put(bone.mName().dataString(), ibpm);
+                    }}
                 lblnone.setText(fileDialogue.getSelectedFile().getPath());
 
                 AbstractListModel<String> model = new AbstractListModel<String>() {
@@ -525,7 +567,8 @@ public class ModelImporter extends PayloadPanel {
         Map<Short, MeshInfo> hsemIdToMeshInfo = new HashMap<>(); // To keep track of MeshInfo per HSEMId
 
         int previousMaterialId = -1;
-
+        Map<Short, Short> previousBoneMapping = new HashMap<>(); // Initialize previous bone mapping
+        
         for (int i = 0; i < scene.mNumMeshes(); i++) {
            
             AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
@@ -639,10 +682,22 @@ public class ModelImporter extends PayloadPanel {
             }
 
             Map<Short, Short> boneMapping = processBoneMappingAndWeights(mesh, vertices, idxAttrib, wgtAttrib, tnoj);
+            Map<Short, Short> changedBoneMapping = new HashMap<>();
+         
+            for (Map.Entry<Short, Short> entry : boneMapping.entrySet()) {
+                if (!entry.getValue().equals(previousBoneMapping.get(entry.getKey()))) {
+                    changedBoneMapping.put(entry.getKey(), entry.getValue());  
+                  }
+            }
 
-            if (!boneMapping.isEmpty())
-                hsemEntry.add(new HSEMJointEntry(boneMapping));
-
+            // Update previous bone mapping for next iteration
+            previousBoneMapping.clear();
+            previousBoneMapping.putAll(boneMapping);
+            
+            if (!changedBoneMapping.isEmpty()) {
+                hsemEntry.add(new HSEMJointEntry(changedBoneMapping));
+            }
+            
             List<XTVOVertex> xtvoVertices = vertices.stream().map(XTVOVertex::new)
                                                     .collect(Collectors.toCollection(ArrayList::new));
             List<XDIOFace> faces = new ArrayList<>();
@@ -651,6 +706,7 @@ public class ModelImporter extends PayloadPanel {
                 faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
             }
 
+         
             xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int)meshInfo.shader,
                                             (short) 0x3001, (short) 0, 0x00010309, 0x73, 0x01));
             xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
@@ -803,11 +859,11 @@ public class ModelImporter extends PayloadPanel {
             }
 
             
-            Matrix4f globalTransform = computeGlobalTransform(nodes);            
+       //     Matrix4f globalTransform = computeGlobalTransform(nodes);            
             
-            Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
-                        
-            float[] ibpm = matrixToArray(inverseBindMatrix);
+      //      Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
+            float[] ibpm = jointBones.getOrDefault(name, IDENTITY_MATRIX);
+       //     float[] ibpm = matrixToArray(inverseBindMatrix);
 
             AIVector3D pos = AIVector3D.create();
             AIQuaternion quat = AIQuaternion.create();

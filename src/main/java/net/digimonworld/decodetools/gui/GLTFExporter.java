@@ -308,7 +308,7 @@ public class GLTFExporter {
 
     private void createGeometry() {
         for (HSEMPayload hsem : hsmp.getHSEM().getHSEMEntries()) {  
-        	jointAssignment.clear();
+            jointAssignment.clear();
             currentTexture.clear(); // Reset at the start of each new mesh processing                
             activeMaterial = -1; // Reset at the start of each new mesh processing
             Map<String, String> extra = new HashMap<>();
@@ -412,7 +412,7 @@ public class GLTFExporter {
             List<String> texEntries = new ArrayList<>(); // Create a list to hold all texture entries
             for (Map.Entry<Short, Short> textureEntry : currentTexture.entrySet()) {
                 // Format each entry as "key value" and add to the list
-            	  if (textureEntry.getKey() == 0) {
+                  if (textureEntry.getValue()!=-1) {
                       primitive.setMaterial((int) textureEntry.getValue());  // Set material from specific texture role
                   }  
                 texEntries.add(textureEntry.getKey().toString() + " " + textureEntry.getValue().toString());
