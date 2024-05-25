@@ -433,8 +433,7 @@ public class GLTFExporter {
         
         int meshId= instance.getMeshes().size() - 1;
         extra.put("meshId",  Integer.toString(meshId));
-        
-        
+
         extra.put("materialId" , Integer.toString(activeMaterial));
         if (xtvo.getAttribute(XTVORegisterType.IDX).isPresent())
         node.setSkin(0);

@@ -18,14 +18,14 @@ public class HSEMData {
 
     public static class MeshInfo {
         int meshId;
-        Map<Integer, String> texIds;
+        Map<Short, String> texIds;
         int materialId;
         short hsemId;
         HSEM07Data hsem07Data;
         float[] headerData;
         UnkData unkData;
         int shader;
-          public MeshInfo(int meshId, Map<Integer, String> texIds, int materialId, short hsemId, HSEM07Data hsem07Data,
+          public MeshInfo(int meshId, Map<Short, String> texIds, int materialId, short hsemId, HSEM07Data hsem07Data,
                     float[] headerData, UnkData unkData, int shader) {
             this.meshId = meshId;
             this.texIds = texIds; // Updated
@@ -116,7 +116,7 @@ public class HSEMData {
                 int shader = extras.optInt("shader",8);
                 
                 String texEntry = extras.optString("texEntry", "");
-                Map<Integer, String> texIds = parseTexEntry(texEntry);
+                Map<Short, String> texIds = parseTexEntry(texEntry);
 
                 HSEM07Data hsem07Data = new HSEM07Data((short) extras.optInt("hsem07_unk1", 15),
                         (short) extras.optInt("hsem07_unk2", 0), (short) extras.optInt("hsem07_unk3", 0),
@@ -162,12 +162,12 @@ public class HSEMData {
         return HSEMDataMap.get(meshId);
     }
     
-    private static Map<Integer, String> parseTexEntry(String texEntry) {
-        Map<Integer, String> texIds = new HashMap<>();
+    private static Map<Short, String> parseTexEntry(String texEntry) {
+        Map<Short, String> texIds = new HashMap<>();
         if (!texEntry.isEmpty()) {
             String[] entries = texEntry.split(", ");
             for (int index = 0; index < entries.length; index++) {
-                texIds.put(index, entries[index]);
+                texIds.put((short)index, entries[index]);
             }
         }
         return texIds;

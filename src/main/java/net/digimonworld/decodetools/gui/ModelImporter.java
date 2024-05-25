@@ -39,8 +39,10 @@ import javax.swing.JScrollPane;
 import javax.swing.LayoutStyle.ComponentPlacement;
 import javax.swing.ListSelectionModel;
 
+import org.joml.AxisAngle4f;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fc;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.lwjgl.assimp.AIBone;
 import org.lwjgl.assimp.AIColor4D;
@@ -56,7 +58,6 @@ import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.AIVertexWeight;
 import org.lwjgl.assimp.Assimp;
-
 
 import de.javagl.jgltf.model.GltfModel;
 
@@ -106,9 +107,8 @@ public class ModelImporter extends PayloadPanel {
     private static final String[] JOINT_PREFIXES = { "J_", "AT_", };
 
     private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate | Assimp.aiProcess_LimitBoneWeights
-                                            | Assimp.aiProcess_SplitByBoneCount
-                                            | Assimp.aiProcess_JoinIdenticalVertices
-                                            |Assimp.aiProcess_OptimizeMeshes;
+                                            | Assimp.aiProcess_SplitByBoneCount | Assimp.aiProcess_JoinIdenticalVertices
+                                            | Assimp.aiProcess_OptimizeMeshes;
 
     private static final AIPropertyStore importProperties = Assimp.aiCreatePropertyStore();
     static {
@@ -121,9 +121,7 @@ public class ModelImporter extends PayloadPanel {
 
     // persistent, loaded or via GUI
     private List<AINode> jointNodes = new ArrayList<>();
-    private Map<String, float[]> inverseMatrix = new HashMap<>();
-    private Map<String, float[]> jointBones = new HashMap<>();
-    
+
     // Swing garbage
     private final JLabel lblInput = new JLabel("Input:");
     private final JLabel lblnone = new JLabel("(None)");
@@ -293,47 +291,7 @@ public class ModelImporter extends PayloadPanel {
                 }
                 float scale = calculateModelScale();
                 spinner.setValue(scale);
-                org.lwjgl.PointerBuffer scene_meshes = scene.mMeshes();
-                for (int i = 0; i < scene.mNumMeshes(); ++i) {
-                    AIMesh mesh = AIMesh.create(scene_meshes.get(i));
-                    for (int j = 0; j < mesh.mNumBones(); ++j) {
-                        AIBone bone = AIBone.create(mesh.mBones().get(j));
-                        AIMatrix4x4 offsetMatrix = bone.mOffsetMatrix();
 
-                        // Here we're going to bake a scale into the inverse bind pose
-                        // Since we need to apply the scale the the translations only in the bind pose,
-                        // and the translations are mixed up with the rotations in the inverse bind pose,
-                        // AND because location-rotation matrices have very simple inverses...
-                        // We're going to un-invert the translation part of the inverse bind pose,
-                        // apply the scale,
-                        // and then re-invert
-                        // We'll ignore the rotation to save flops, since our baked-in scale won't affect the rotation
-
-                        // Set up the variables we're going to need
-                        Vector3 t = new Vector3(offsetMatrix.a4(), offsetMatrix.b4(), offsetMatrix.c4());
-                        Vector3 u = new Vector3(offsetMatrix.a1(), offsetMatrix.b1(), offsetMatrix.c1());
-                        Vector3 v = new Vector3(offsetMatrix.a2(), offsetMatrix.b2(), offsetMatrix.c2());
-                        Vector3 w = new Vector3(offsetMatrix.a3(), offsetMatrix.b3(), offsetMatrix.c3());
-
-                        // Retrieve the translation from the bind pose, and apply the scale
-                        Vector3 s = new Vector3(-u.dot(t) * scale, -v.dot(t) * scale, -w.dot(t) * scale);
-
-                        // Re-invert
-                        Vector3 x = new Vector3(offsetMatrix.a1(), offsetMatrix.a2(), offsetMatrix.a3());
-                        Vector3 y = new Vector3(offsetMatrix.b1(), offsetMatrix.b2(), offsetMatrix.b3());
-                        Vector3 z = new Vector3(offsetMatrix.c1(), offsetMatrix.c2(), offsetMatrix.c3());
-                        float t_x = -x.dot(s);
-                        float t_y = -y.dot(s);
-                        float t_z = -z.dot(s);
-
-                        // Save the matrix for later
-                        float[] ibpm = { offsetMatrix.a1(), offsetMatrix.a2(), offsetMatrix.a3(), t_x,
-                                         offsetMatrix.b1(), offsetMatrix.b2(), offsetMatrix.b3(), t_y,
-                                         offsetMatrix.c1(), offsetMatrix.c2(), offsetMatrix.c3(), t_z,
-                                         offsetMatrix.d1(), offsetMatrix.d2(), offsetMatrix.d3(), offsetMatrix.d4() };
-
-                        jointBones.put(bone.mName().dataString(), ibpm);
-                    }}
                 lblnone.setText(fileDialogue.getSelectedFile().getPath());
 
                 AbstractListModel<String> model = new AbstractListModel<String>() {
@@ -488,7 +446,7 @@ public class ModelImporter extends PayloadPanel {
         entries.add(new HSEMMaterialEntry((short) 0, (short) materialId));
     }
 
-    private void addTextureEntry(List<HSEMEntry> entries, Map<Integer, String> texEntries) {
+    private void addTextureEntry(List<HSEMEntry> entries, Map<Short, String> texEntries) {
         HashMap<Short, Short> textureMap = new HashMap<>();
         texEntries.forEach((key, value) -> {
             String[] parts = value.split(" ");
@@ -497,10 +455,14 @@ public class ModelImporter extends PayloadPanel {
                 short index = Short.parseShort(parts[1]);
                 textureMap.put(role, index);
             }
+            else
+            {
+                textureMap.put((short)0, (short)0);
+                textureMap.put((short)2, (short)1);
+            }
         });
-        if (!textureMap.isEmpty()) {
-            entries.add(new HSEMTextureEntry(textureMap));
-        }
+        entries.add(new HSEMTextureEntry(textureMap));
+         
     }
 
     private void addHSEM07Entry(List<HSEMEntry> entries, HSEM07Data data) {
@@ -566,34 +528,42 @@ public class ModelImporter extends PayloadPanel {
         Map<Short, List<HSEMEntry>> groupedHsemPayload = new HashMap<>();
         Map<Short, MeshInfo> hsemIdToMeshInfo = new HashMap<>(); // To keep track of MeshInfo per HSEMId
 
+        Map<Short, String> defaultMap = new HashMap<>();
+        defaultMap.put((short) 0,"0");
+        defaultMap.put((short)2, "1");
+
         int previousMaterialId = -1;
         Map<Short, Short> previousBoneMapping = new HashMap<>(); // Initialize previous bone mapping
-        
+
         for (int i = 0; i < scene.mNumMeshes(); i++) {
-           
+
             AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
 
             int materialId = mesh.mMaterialIndex();
             MeshInfo meshInfo = HSEMData.getMeshInfo(i);
-            
-           // if (meshInfo == null) {
-         //       meshInfo = new MeshInfo(i, new HashMap<>(), materialId, (short) -1, new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4], new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0));
-         //   }  
-            
+
+            if (meshInfo == null) {
+                meshInfo = new MeshInfo(i, defaultMap, materialId, (short) -1,
+                                        new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4],
+                                        new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0), 8);
+            }
+
             short hsemId = meshInfo.hsemId;
 
             List<HSEMEntry> hsemEntry = groupedHsemPayload.computeIfAbsent(hsemId, k -> new ArrayList<>());
             hsemIdToMeshInfo.put(hsemId, meshInfo); // Store the latest MeshInfo for each HSEMId
 
             if (materialId != previousMaterialId) {
-                // Add entries
+                // Add material entries
                 addMaterialEntry(hsemEntry, meshInfo.materialId);
+                
 
-                if (!meshInfo.texIds.isEmpty()) {
-                    addTextureEntry(hsemEntry, meshInfo.texIds);
-                }
+                addTextureEntry(hsemEntry, meshInfo.texIds);
+            
                 previousMaterialId = materialId;
-            }
+                } 
+           
+        
 
             addHSEM07Entry(hsemEntry, meshInfo.hsem07Data);
 
@@ -683,21 +653,21 @@ public class ModelImporter extends PayloadPanel {
 
             Map<Short, Short> boneMapping = processBoneMappingAndWeights(mesh, vertices, idxAttrib, wgtAttrib, tnoj);
             Map<Short, Short> changedBoneMapping = new HashMap<>();
-         
+
             for (Map.Entry<Short, Short> entry : boneMapping.entrySet()) {
                 if (!entry.getValue().equals(previousBoneMapping.get(entry.getKey()))) {
-                    changedBoneMapping.put(entry.getKey(), entry.getValue());  
-                  }
+                    changedBoneMapping.put(entry.getKey(), entry.getValue());
+                }
             }
 
             // Update previous bone mapping for next iteration
             previousBoneMapping.clear();
             previousBoneMapping.putAll(boneMapping);
-            
+
             if (!changedBoneMapping.isEmpty()) {
                 hsemEntry.add(new HSEMJointEntry(changedBoneMapping));
             }
-            
+
             List<XTVOVertex> xtvoVertices = vertices.stream().map(XTVOVertex::new)
                                                     .collect(Collectors.toCollection(ArrayList::new));
             List<XDIOFace> faces = new ArrayList<>();
@@ -706,9 +676,8 @@ public class ModelImporter extends PayloadPanel {
                 faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
             }
 
-         
-            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int)meshInfo.shader,
-                                            (short) 0x3001, (short) 0, 0x00010309, 0x73, 0x01));
+            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) meshInfo.shader, (short) 0x3001,
+                                            (short) 0, 0x00010309, 0x73, 0x01));
             xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 
             hsemEntry.add(new HSEMDrawEntry((short) 4, (short) i, (short) i, (short) 0, 0, faces.size() * 3));
@@ -841,48 +810,49 @@ public class ModelImporter extends PayloadPanel {
         // Process each node to load joints and their corresponding bone matrices
         for (AINode nodes : jointNodes) {
             String name = nodes.mName().dataString();
+            System.out.print(name);
 
-            // Skip non-joint nodes early to avoid unnecessary processing
-            if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1])) {
+            if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1]))
                 continue;
-            }
 
             AINode parent = nodes.mParent();
-            if (parent != null) {
-                String parentName = parent.mName().dataString();
-                int parentId = names.indexOf(parentName);
+            int parentId = parent != null ? names.indexOf(parent.mName().dataString()) : -1;
 
-                if (parentId == -1 && isJointNode(parent) && !isJointNode(nodes)) {
-                    Main.LOGGER.severe(() -> "AINode " + name + " order is invalid, parent node " + parentName + " has not been processed yet.");
-                    continue; // Skip this node as its parent hasn't been processed yet
-                }
-            }
+            Matrix4f matrix = new Matrix4f(aiMatrix4x4ToMatrix4f(nodes.mTransformation()));
 
+            Vector3f translation = new Vector3f();
+            Quaternionf rotation = new Quaternionf();
+            Vector3f jointscale = new Vector3f();
+
+            matrix.getTranslation(translation);
+            matrix.getNormalizedRotation(rotation);
+            matrix.getScale(jointscale);
+
+            float[] translationArray = { translation.x * scale, translation.y * scale, translation.z * scale, 0.0f };
+            float[] rotationArray = { rotation.x, rotation.y, rotation.z, rotation.w };
+            float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f }; //0.0f is padding
+            float[] localScaleVector = { jointscale.x, jointscale.y, jointscale.z, 0.0f };// 0.0f is padding
+
+            Matrix4f globalTransform = computeGlobalTransform(nodes); // Get Global Transformation Matrix
+            // Translation needs scale applied    
+            Vector3f translation2 = new Vector3f();
+            globalTransform.getTranslation(translation2);
+            globalTransform.setTranslation(translation2.x * scale, translation2.y * scale, translation2.z * scale); 
+                                                                              
+            // Transposing from Column to Row Order, inverting and putting into the array
+            float[] ibpm = matrixToArray(transposeMatrix(globalTransform.invert())); 
             
-       //     Matrix4f globalTransform = computeGlobalTransform(nodes);            
-            
-      //      Matrix4f inverseBindMatrix = new Matrix4f(globalTransform).invert();
-            float[] ibpm = jointBones.getOrDefault(name, IDENTITY_MATRIX);
-       //     float[] ibpm = matrixToArray(inverseBindMatrix);
-
-            AIVector3D pos = AIVector3D.create();
-            AIQuaternion quat = AIQuaternion.create();
-            AIVector3D scal = AIVector3D.create();
-            Assimp.aiDecomposeMatrix(nodes.mTransformation(), scal, quat, pos);
-
-            float[] offsetVector = { nodes.mTransformation().a4() * scale, nodes.mTransformation().b4() * scale, nodes.mTransformation().c4() * scale, 0.0f };
-            float[] rotationQuat = { quat.x(), quat.y(), quat.z(), quat.w() };
-            float[] scaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
-            float[] localScaleVector = { scal.x(), scal.y(), scal.z(), 0.0f };
-
             names.add(name);
 
-            tnojList.add(new TNOJPayload(null, parent != null ? names.indexOf(parent.mName().dataString()) : -1, name, 0, 0, ibpm, offsetVector, rotationQuat, scaleVector, localScaleVector));
+            tnojList.add(new TNOJPayload(null, parentId, name, 0, 0, ibpm, translationArray, rotationArray, scaleArray,
+                                         localScaleVector));
+
         }
 
         return tnojList;
     }
 
+    
     private Matrix4f computeGlobalTransform(AINode node) {
         Matrix4f globalTransform = new Matrix4f(aiMatrix4x4ToMatrix4f(node.mTransformation()));
         AINode parent = node.mParent();
@@ -895,17 +865,37 @@ public class ModelImporter extends PayloadPanel {
     }
 
     private Matrix4f aiMatrix4x4ToMatrix4f(AIMatrix4x4 matrix) {
-        return new Matrix4f(matrix.a1(), matrix.a2(), matrix.a3(), matrix.a4(), // Row 1
-                            matrix.b1(), matrix.b2(), matrix.b3(), matrix.b4(), // Row 2
-                            matrix.c1(), matrix.c2(), matrix.c3(), matrix.c4(), // Row 3
-                            matrix.d1(), matrix.d2(), matrix.d3(), matrix.d4() // Row 4
+        return new Matrix4f(matrix.a1(), matrix.b1(), matrix.c1(), matrix.d1(), // Column 1
+                            matrix.a2(), matrix.b2(), matrix.c2(), matrix.d2(), // Column 2
+                            matrix.a3(), matrix.b3(), matrix.c3(), matrix.d3(), // Column 3
+                            matrix.a4(), matrix.b4(), matrix.c4(), matrix.d4() // Column 4
         );
+    }
+
+    public static Matrix4f transposeMatrix(Matrix4f matrix) {
+        Matrix4f result = new Matrix4f();
+        result.m00(matrix.m00());
+        result.m01(matrix.m10());
+        result.m02(matrix.m20());
+        result.m03(matrix.m30());
+        result.m10(matrix.m01());
+        result.m11(matrix.m11());
+        result.m12(matrix.m21());
+        result.m13(matrix.m31());
+        result.m20(matrix.m02());
+        result.m21(matrix.m12());
+        result.m22(matrix.m22());
+        result.m23(matrix.m32());
+        result.m30(matrix.m03());
+        result.m31(matrix.m13());
+        result.m32(matrix.m23());
+        result.m33(matrix.m33());
+        return result;
     }
 
     private float[] matrixToArray(Matrix4fc matrix) {
         float[] array = new float[16];
-        if (matrix == null)
-        {
+        if (matrix == null) {
             return IDENTITY_MATRIX;
         }
         matrix.get(array);
