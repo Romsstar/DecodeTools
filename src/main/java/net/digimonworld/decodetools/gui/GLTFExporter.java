@@ -370,7 +370,6 @@ public class GLTFExporter {
 
         // build colors
         if (xtvo.getAttribute(XTVORegisterType.COLOR).isPresent()) {
-        
             int colorsBuffer = colorAttribToBuffer(xtvo.getVertices(), XTVORegisterType.COLOR);
             int colorsBufferView = createBufferView(colorsBuffer, GL_ARRAY_BUFFER, "colorBufferView");
             int colorsAccessor = createAccessor(colorsBufferView, GL_UNSIGNED_BYTE, vertexCount, "VEC4", "COLOR",true);
@@ -414,6 +413,7 @@ public class GLTFExporter {
         
         if (!currentTexture.isEmpty()) {
             List<String> texEntries = new ArrayList<>(); // Create a list to hold all texture entries
+                              
             for (Map.Entry<Short, Short> textureEntry : currentTexture.entrySet()) {
                 // Format each entry as "key value" and add to the list
                   if (textureEntry.getValue()!=-1) {
@@ -469,10 +469,10 @@ public class GLTFExporter {
                 break;
 
             case TEXTURE:            
-                currentTexture.putAll(((HSEMTextureEntry) entry).getTextureAssignment());
-             
-                break;
-
+                 currentTexture.clear();
+                 currentTexture.putAll(((HSEMTextureEntry) entry).getTextureAssignment());
+                 break;
+                
             case MATERIAL:
                 HSEMMaterialEntry materialEntry = (HSEMMaterialEntry) entry;
                 activeMaterial = materialEntry.getMaterialId();
@@ -597,38 +597,28 @@ public class GLTFExporter {
     }
     
     private int colorAttribToBuffer(List<XTVOVertex> vertices, XTVORegisterType type) {
-        if (type == XTVORegisterType.COLOR) {
-            List<Byte> byteList = new ArrayList<>();
+  
 
-            for (XTVOVertex vertex : vertices) {
-                Entry<XTVOAttribute, List<Number>> entry = vertex.getParameter(XTVORegisterType.COLOR);
-                for (Number value : entry.getValue()) {
-                      
-                    int intValue = value.intValue() & 0xFF; //Because Java is stupid
-                   System.out.println(intValue);
-                    byteList.add((byte) intValue);
-                }
-            }
+        List<Byte> byteList = vertices.stream()
+                .map(vertex -> vertex.getParameter(type))
+                .flatMap(entry -> entry.getValue().stream()
+                    .map(value -> (byte) (value.intValue() & 0xFF))) // Ensure values are within byte range
+                .collect(Collectors.toList());
 
+            // Convert List<Byte> to ByteBuffer
             ByteBuffer byteBuffer = ByteBuffer.allocate(byteList.size());
             byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            byteList.forEach(byteBuffer::put);
+            byteBuffer.flip(); // Prepare buffer for reading
 
-            
-            for (byte b : byteList) {
-                byteBuffer.put(b);
-            }
-
-            byteBuffer.flip();
-
+       
             Buffer gltfBuffer = new Buffer();
             gltfBuffer.setByteLength(byteBuffer.remaining());
             gltfBuffer.setUri(BUFFER_URI + Base64.getEncoder().encodeToString(byteBuffer.array()));
             instance.addBuffers(gltfBuffer);
 
-            return instance.getBuffers().size() - 1;
+            return instance.getBuffers().size() - 1; // Return the index of the newly added buffer
         }
-        return -1; 
-    }
 
 
     

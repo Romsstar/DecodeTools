@@ -118,6 +118,7 @@ public class ModelImporter extends PayloadPanel {
 
     private HSMPKCAP rootKCAP;
     private AIScene scene;
+    private HSEMData hsemData;
 
     // persistent, loaded or via GUI
     private List<AINode> jointNodes = new ArrayList<>();
@@ -260,7 +261,9 @@ public class ModelImporter extends PayloadPanel {
                                                             null, importProperties);
 
                 try {
-                    HSEMData.getExtraData(fileDialogue.getSelectedFile().getPath());
+                    hsemData = new HSEMData();
+             
+                    hsemData.getExtraData(fileDialogue.getSelectedFile().getPath());
                 }
                 catch (IOException e1) {
                     // TODO Auto-generated catch block
@@ -446,24 +449,8 @@ public class ModelImporter extends PayloadPanel {
         entries.add(new HSEMMaterialEntry((short) 0, (short) materialId));
     }
 
-    private void addTextureEntry(List<HSEMEntry> entries, Map<Short, String> texEntries) {
-        HashMap<Short, Short> textureMap = new HashMap<>();
-        texEntries.forEach((key, value) -> {
-            String[] parts = value.split(" ");
-            if (parts.length == 2) {
-                short role = Short.parseShort(parts[0]);
-                short index = Short.parseShort(parts[1]);
-                textureMap.put(role, index);
-            }
-            else
-            {
-                textureMap.put((short)0, (short)0);
-                textureMap.put((short)2, (short)1);
-            }
-        });
-        entries.add(new HSEMTextureEntry(textureMap));
-         
-    }
+
+            
 
     private void addHSEM07Entry(List<HSEMEntry> entries, HSEM07Data data) {
         entries.add(new HSEM07Entry(data.unk1, data.unk2, data.unk3, data.unk4));
@@ -528,45 +515,40 @@ public class ModelImporter extends PayloadPanel {
         Map<Short, List<HSEMEntry>> groupedHsemPayload = new HashMap<>();
         Map<Short, MeshInfo> hsemIdToMeshInfo = new HashMap<>(); // To keep track of MeshInfo per HSEMId
 
-        Map<Short, String> defaultMap = new HashMap<>();
-        defaultMap.put((short) 0,"0");
-        defaultMap.put((short)2, "1");
-
+    
         int previousMaterialId = -1;
         Map<Short, Short> previousBoneMapping = new HashMap<>(); // Initialize previous bone mapping
 
+        
         for (int i = 0; i < scene.mNumMeshes(); i++) {
 
             AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
 
-            int materialId = mesh.mMaterialIndex();
-            MeshInfo meshInfo = HSEMData.getMeshInfo(i);
-
-            if (meshInfo == null) {
-                meshInfo = new MeshInfo(i, defaultMap, materialId, (short) -1,
-                                        new HSEM07Data((short) 15, (short) 0, (short) 0, (short) 0), new float[4],
-                                        new UnkData((short) 0, (byte) 0, (byte) 0, 0, 0), 8);
-            }
-
+           HSEMData.MeshInfo meshInfo = hsemData.getMeshInfo(i);
+           
+           if (meshInfo == null) {
+               meshInfo=hsemData.getMeshInfo(mesh.mMaterialIndex());            
+           }
+                   
             short hsemId = meshInfo.hsemId;
-
+           
             List<HSEMEntry> hsemEntry = groupedHsemPayload.computeIfAbsent(hsemId, k -> new ArrayList<>());
             hsemIdToMeshInfo.put(hsemId, meshInfo); // Store the latest MeshInfo for each HSEMId
 
-            if (materialId != previousMaterialId) {
+            if (mesh.mMaterialIndex() != previousMaterialId) {
                 // Add material entries
+                                  
+                hsemEntry.add(new HSEMTextureEntry(meshInfo.texIds));
+   
                 addMaterialEntry(hsemEntry, meshInfo.materialId);
                 
-
-                addTextureEntry(hsemEntry, meshInfo.texIds);
-            
-                previousMaterialId = materialId;
+                previousMaterialId = mesh.mMaterialIndex();
                 } 
            
-        
-
+            
+                
             addHSEM07Entry(hsemEntry, meshInfo.hsem07Data);
-
+       
             AIVector3D.Buffer mVertices = mesh.mVertices();
             AIVector3D.Buffer mNormals = mesh.mNormals();
             AIVector3D.Buffer tex0Buff = mesh.mTextureCoords(0);
@@ -676,7 +658,7 @@ public class ModelImporter extends PayloadPanel {
                 faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
             }
 
-            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) meshInfo.shader, (short) 0x3001,
+            xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) 8, (short) 0x3001,
                                             (short) 0, 0x00010309, 0x73, 0x01));
             xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 
@@ -769,6 +751,14 @@ public class ModelImporter extends PayloadPanel {
         return scales;
     }
 
+    private float srgbToLinear(float c) {
+        if (c <= 0.04045f) {
+            return c / 12.92f;
+        } else {
+            return (float) Math.pow((c + 0.055f) / 1.055f, 2.4f);
+        }
+    }
+    
     @SuppressWarnings("resource")
     private static boolean isJointNode(AINode node) {
         if (node == null)
