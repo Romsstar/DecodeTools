@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -110,6 +111,7 @@ import javax.swing.JComboBox;
 import javax.swing.DefaultComboBoxModel;
 
 public class ModelImporter extends PayloadPanel {
+	private GltfModel importedGltfModel;
     private static final float[] IDENTITY_MATRIX = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
                                                      0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
     private static final String[] JOINT_PREFIXES = { "J_", "AT_", };
@@ -145,7 +147,7 @@ public class ModelImporter extends PayloadPanel {
     private final JLabel lblScale = new JLabel("Scale:");
     private final JSpinner spinner = new JSpinner();
     private final JPanel panel_1 = new JPanel();
-    private final JComboBox<Integer> comboBox = new JComboBox<>();
+    private final JComboBox<Integer> shaderBox = new JComboBox<>();
     private final JLabel lblNewLabel = new JLabel("Shader:");
     private final JButton btnNewButton = new JButton("Joints to OBJ");
     private final JButton btnExportDAE = new JButton("Export to DAE");
@@ -200,9 +202,10 @@ public class ModelImporter extends PayloadPanel {
         });
 
         lblScale.setLabelFor(spinner);
-        lblNewLabel.setLabelFor(comboBox);
-        comboBox.setModel(new DefaultComboBoxModel<Integer>(new Integer[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }));
-        comboBox.setSelectedIndex(8);
+        lblNewLabel.setLabelFor(shaderBox);
+        shaderBox.setModel(new DefaultComboBoxModel<Integer>(new Integer[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }));
+
+        shaderBox.setSelectedIndex(8);
         spinner.setModel(new SpinnerNumberModel(0f, null, null, 0.001f));
         setSelectedFile(rootKCAP);
         setupLayout();
@@ -265,7 +268,8 @@ public class ModelImporter extends PayloadPanel {
                 if (fileDialogue.getSelectedFile() == null)
                     return;
 
-                loadGLTFModel(fileDialogue.getSelectedFile().getPath());
+                importedGltfModel = loadGLTFModel(fileDialogue.getSelectedFile().getPath());
+  
                 scene = Assimp.aiImportFileExWithProperties(fileDialogue.getSelectedFile().getPath(), IMPORT_FLAGS,
                                                             null, importProperties);
 
@@ -361,7 +365,7 @@ public class ModelImporter extends PayloadPanel {
                                                                                                             .addPreferredGap(ComponentPlacement.RELATED)
                                                                                                             .addComponent(lblNewLabel)
                                                                                                             .addPreferredGap(ComponentPlacement.RELATED)
-                                                                                                            .addComponent(comboBox,
+                                                                                                            .addComponent(shaderBox,
                                                                                                                           GroupLayout.PREFERRED_SIZE,
                                                                                                                           53,
                                                                                                                           GroupLayout.PREFERRED_SIZE))
@@ -383,7 +387,7 @@ public class ModelImporter extends PayloadPanel {
                                                                                                     GroupLayout.DEFAULT_SIZE,
                                                                                                     GroupLayout.PREFERRED_SIZE)
                                                                                       .addComponent(lblNewLabel)
-                                                                                      .addComponent(comboBox,
+                                                                                      .addComponent(shaderBox,
                                                                                                     GroupLayout.PREFERRED_SIZE,
                                                                                                     GroupLayout.DEFAULT_SIZE,
                                                                                                     GroupLayout.PREFERRED_SIZE))
@@ -493,7 +497,68 @@ public class ModelImporter extends PayloadPanel {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private HashMap<Short, Short> readTextureMappingFromPrimitive(GltfModel model, int meshIndex) {
+        HashMap<Short, Short> texMap = new HashMap<>();
+        if (meshIndex < model.getMeshModels().size()) {
+            model.getMeshModels().get(meshIndex).getMeshPrimitiveModels().forEach(primitive -> {
+                Object extrasObj = primitive.getExtras();
+                if (extrasObj instanceof Map) {
+                    Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
+                    if (extrasMap.containsKey("texId")) {
+                        Object texIdObj = extrasMap.get("texId");
+                        short texId = (texIdObj instanceof Number)
+                                      ? ((Number) texIdObj).shortValue()
+                                      : Short.parseShort(texIdObj.toString());
+                        texMap.put((short) 0, texId);
+                    }
+                }
+            });
+        }
+        return texMap;
+    }
 
+    @SuppressWarnings("unchecked")
+    private HashMap<Short, Short> readTextureMappingFromMesh(GltfModel model, int meshIndex) {
+        HashMap<Short, Short> texMap = new HashMap<>();
+        if (meshIndex < model.getMeshModels().size()) {
+            var meshModel = model.getMeshModels().get(meshIndex);
+            Object extrasObj = meshModel.getExtras();
+            if (extrasObj instanceof Map) {
+                Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
+                if (extrasMap.containsKey("texId")) {
+                    Object texIdObj = extrasMap.get("texId");
+                    short texId = (texIdObj instanceof Number)
+                                  ? ((Number) texIdObj).shortValue()
+                                  : Short.parseShort(texIdObj.toString());
+                    texMap.put((short) 0, texId);
+                }
+            }
+        }
+        return texMap;
+    }
+
+    
+   @SuppressWarnings("unchecked")
+    private int readIdFromMesh(GltfModel model, int meshIndex) {
+        if (meshIndex < model.getMeshModels().size()) {
+            var meshModel = model.getMeshModels().get(meshIndex);
+            Object extrasObj = meshModel.getExtras();
+            if (extrasObj instanceof Map) {
+                Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
+                if (extrasMap.containsKey("id")) {
+                    Object idObj = extrasMap.get("id");
+                    return (idObj instanceof Number)
+                           ? ((Number) idObj).intValue()
+                           : Integer.parseInt(idObj.toString());
+                }
+            }
+        }
+        return -1;
+    }
+
+
+    
     @SuppressWarnings("resource")
     public void loadModel() {
         List<XDIOPayload> xdioPayload = new ArrayList<>();
@@ -503,16 +568,17 @@ public class ModelImporter extends PayloadPanel {
         List<HSEMEntry> hsemPayload = new ArrayList<>();
                   
         Map<Short, Short> previousBoneMapping = new HashMap<>(); 
+        Map<Integer, List<HSEMEntry>> hsemById = new LinkedHashMap<>();
         
         int materialId = -1;
-        
+        int meshId =-1;
         byte blendFlag = 0x00;
         byte maskFlag = 0x00;
         
         for (int i = 0; i < scene.mNumMeshes(); i++) {
 
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
-           
+           meshId = readIdFromMesh(importedGltfModel, i);
           
            //get Material Properties
            int materialIndex = mesh.mMaterialIndex();
@@ -524,17 +590,25 @@ public class ModelImporter extends PayloadPanel {
                    blendFlag = 0x01; // Set first byte
                if ("MASK".equalsIgnoreCase(alphaMode))
                    maskFlag = 0x01;  // Set second byte
+          
+               HashMap<Short, Short> texMap = readTextureMappingFromMesh(importedGltfModel, i);
+               meshId= readIdFromMesh(importedGltfModel,i);
+               
+               if (!texMap.isEmpty()) {
+            	   
+                   hsemPayload.add(new HSEMTextureEntry(texMap));
+               }
+
                
            if (mesh.mMaterialIndex() != materialId) {
                hsemPayload.add(new HSEMMaterialEntry((short) 0, (short) mesh.mMaterialIndex()));
-               HashMap<Short, Short> map = new HashMap<>();
-
-               map.put((short) 0, (short) mesh.mMaterialIndex());
-               map.put((short) 2, (short) (scene.mNumMaterials() - 1));
-               hsemPayload.add(new HSEMTextureEntry(map));
+           }
+                              
+  
+               
                materialId = mesh.mMaterialIndex();
                hsemPayload.add(new HSEM07Entry((short) 0x000F, (short) 0,(byte) blendFlag, (byte) maskFlag,(short) 0));
-           }
+           
        
             AIVector3D.Buffer mVertices = mesh.mVertices();
             AIVector3D.Buffer mNormals = mesh.mNormals();
@@ -554,7 +628,7 @@ public class ModelImporter extends PayloadPanel {
 
             short offsetCounter = 0;
 
-            //float scale = (float) spinner.getValue();
+           // float scale = (float) spinner.getValue();
             float scale = 1;
 
             XTVOAttribute vertexAttrib = new XTVOAttribute(XTVORegisterType.POSITION, offsetCounter, (byte) 3,
@@ -648,7 +722,7 @@ public class ModelImporter extends PayloadPanel {
             faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
         }
 
-          xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) 8, (short) 0x3001,
+          xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) shaderBox.getSelectedItem(), (short) 0x3001,
                                          (short) 0, 0x00010309, 0x73, 0x01));
            xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 
@@ -710,7 +784,7 @@ public class ModelImporter extends PayloadPanel {
 
         List<ResPayload> parentPayloads = parentKCAP.getEntries();
 
-        for (int i = 1; i < 15; i++) {
+        for (int i = 1; i < Math.min(15, parentPayloads.size()); i++) {
             if (tdtmKCAPs.get(i-1) != null)
                 parentPayloads.set(i, tdtmKCAPs.get(i-1));
         }
@@ -867,7 +941,7 @@ public class ModelImporter extends PayloadPanel {
     }
 
     private static void traverseNodes(AINode node, List<AINode> jointList) {
-        if (isJointNode(node)) { // Keep only actual joint nodes
+        if (isJointNode(node)) { 
             jointList.add(node);
         }
         for (int i = 0; i < node.mNumChildren(); i++) {
@@ -963,7 +1037,7 @@ public class ModelImporter extends PayloadPanel {
 
         List<ResPayload> otherPayloads = rootKCAP.getParent().getEntries();
 
-        for (int i = 1; i < 15; i++) {
+        for (int i = 1; i < Math.min(15, otherPayloads.size()); i++) {
             tdtmKCAPs.add(null);
 
             if (otherPayloads.get(i) != null) {

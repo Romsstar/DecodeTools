@@ -299,7 +299,7 @@ public class GLTFExporter {
 
             Node node = new Node();
             node.setName(loc.getName());
-            // gltf prefers for default transoform matrices to be not specified
+            // gltf prefers for default transform matrices to be not specified
             if (!isIdentityMatrix(loc.getMatrix()))
                 node.setMatrix(mirrorMatrix(loc.getMatrix()));
             node.setExtras(extra);
@@ -424,11 +424,13 @@ public class GLTFExporter {
 
         // TODO deal with materials proper, support multiple textures and LRTM
         if (textureAssignment.getOrDefault((short) 0, (short) -1) != -1) {
-            //int matIndex = activeMaterial.getMaterialId();
-            int matIndex = 0;
+            int matIndex = activeMaterial.getMaterialId();
+            //int matIndex = 0;
             Material mat = instance.getMaterials().get(matIndex);
-
+             
             int texIndex = textureAssignment.get((short) 0).intValue();
+            extra.put("texId", Short.toString((short) texIndex));
+            
             TextureInfo baseColorTextureInfo = new TextureInfo();
             baseColorTextureInfo.setIndex(texIndex);
 
@@ -460,6 +462,7 @@ public class GLTFExporter {
                 primitive.setMaterial(matIndex);
             }
         }
+        
         
         Mesh mesh = new Mesh();
         mesh.setExtras(extra);
@@ -493,7 +496,8 @@ public class GLTFExporter {
                 break;
 
             case TEXTURE:
-                ((HSEMTextureEntry) entry).getTextureAssignment().forEach(textureAssignment::put);
+                HSEMTextureEntry texEntry = (HSEMTextureEntry) entry;
+                textureAssignment.putAll(texEntry.getTextureAssignment());
                 break;
 
             case MATERIAL:

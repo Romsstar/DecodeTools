@@ -9,10 +9,18 @@ import net.digimonworld.decodetools.res.payload.LRTMPayload;
 import net.digimonworld.decodetools.res.payload.LRTMPayload.LRTMShadingType;
 import net.digimonworld.decodetools.res.payload.LRTMPayload.LRTMUnkownType;
 import javax.swing.plaf.basic.BasicSliderUI;
+import javax.swing.text.NumberFormatter;
+
 import java.awt.*;
 import javax.swing.JTextField;
+
+import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.beans.PropertyChangeListener;
+import java.text.FieldPosition;
+import java.text.NumberFormat;
+import java.text.ParsePosition;
 
 
 public class LRTMPanel extends PayloadPanel {
@@ -35,9 +43,11 @@ public class LRTMPanel extends PayloadPanel {
     private final JLabel unk3Label = new JLabel("Specular1:");
     private final JSlider spec0Slider =createStyledSlider();
     private final JSlider spec1Slider= createStyledSlider();
+
+    private final JLabel filterLabel = new JLabel("Color Filter:");
     
-    private final JLabel filterLabel = new JLabel("Filter:");
-    private final JHexSpinner filterSpinner = new JHexSpinner();
+    private final JButton filterSwatch = new JButton();
+    
     private final JTextField ambientValueLabel = new JTextField("0"); // Display normalized ambient value
     private final JTextField specularValueLabel = new JTextField("0"); // Display normalized specular value
     private final JTextField emitValueLabel = new JTextField ("0"); // Display normalized emit value
@@ -114,11 +124,38 @@ public class LRTMPanel extends PayloadPanel {
         addTextFieldListener(spec1ValueLabel, spec1Slider);
 
 
+        filterSwatch.setPreferredSize(new Dimension(50, 50));
+        filterSwatch.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+        filterSwatch.setFocusPainted(false);
+        filterSwatch.setContentAreaFilled(true);
+
+        // Clicking the swatch opens a color chooser
+        filterSwatch.addActionListener(e -> {
+            if (selectedLRTM == null) return;
+
+            // Get stored BGR, convert to RGB
+            int rgb = bgrToRgb(selectedLRTM.getColorFilter()) & 0xFFFFFF;
+            Color current = new Color(rgb);
+
+            // Show chooser with current color pre-selected
+            Color chosen = JColorChooser.showDialog(this, "Choose Filter Color", current);
+
+            if (chosen != null) {
+                int chosenRGB = chosen.getRGB() & 0xFFFFFF; // Strip alpha
+                selectedLRTM.setColorFilter(rgbToBgr(chosenRGB)); // Store in BGR
+                filterSwatch.setBackground(new Color(chosenRGB)); // Update swatch
+            }
+        });
 
 
-        filterSpinner.addChangeListener(a -> selectedLRTM.setColorFilter(((Long) filterSpinner.getValue()).intValue()));
+
         shadingSelector.addItemListener(a -> selectedLRTM.setShadingType((LRTMShadingType) a.getItem()));
         
+        unk1Selector.addItemListener(a -> {
+            if (selectedLRTM != null) {
+                selectedLRTM.setUnknownType((LRTMUnkownType) a.getItem());
+            }
+        });
 
         GroupLayout groupLayout = new GroupLayout(this);
         groupLayout.setAutoCreateGaps(true); // Adds consistent gaps
@@ -137,7 +174,10 @@ public class LRTMPanel extends PayloadPanel {
                         .addPreferredGap(LayoutStyle.ComponentPlacement.UNRELATED)
                         .addComponent(filterLabel, GroupLayout.PREFERRED_SIZE, 80, GroupLayout.PREFERRED_SIZE)
                         .addPreferredGap(LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(filterSpinner, GroupLayout.PREFERRED_SIZE, 100, GroupLayout.PREFERRED_SIZE))
+                        .addComponent(filterSwatch, 50, 50, 50)
+                        .addPreferredGap(LayoutStyle.ComponentPlacement.RELATED)
+                    		)
+
                     // Ambient slider row
                     .addGroup(groupLayout.createSequentialGroup()
                         .addComponent(ambientLabel, GroupLayout.PREFERRED_SIZE, 80, GroupLayout.PREFERRED_SIZE)
@@ -182,7 +222,7 @@ public class LRTMPanel extends PayloadPanel {
                         .addComponent(unk1Label)
                         .addComponent(unk1Selector)
                         .addComponent(filterLabel)
-                        .addComponent(filterSpinner))
+                        .addComponent(filterSwatch, 50, 50, 50))
                     .addPreferredGap(LayoutStyle.ComponentPlacement.RELATED)
                     .addGroup(groupLayout.createParallelGroup(Alignment.CENTER)
                         .addComponent(ambientLabel, GroupLayout.PREFERRED_SIZE, 30, GroupLayout.PREFERRED_SIZE)
@@ -245,6 +285,82 @@ public class LRTMPanel extends PayloadPanel {
     }
 
 
+    private int bgrToRgb(int bgr) {
+        int b = (bgr >> 16) & 0xFF;
+        int g = (bgr >> 8) & 0xFF;
+        int r = bgr & 0xFF;
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private int rgbToBgr(int rgb) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        return (b << 16) | (g << 8) | r;
+    }
+
+    
+    public class JHexSpinner extends JSpinner {
+
+        public JHexSpinner() {
+            super(new SpinnerNumberModel(0, 0, 0xFFFFFF, 1)); // 0xFFFFFF max
+
+            JSpinner.NumberEditor editor = new JSpinner.NumberEditor(this);
+            NumberFormatter formatter = (NumberFormatter) editor.getTextField().getFormatter();
+
+            formatter.setAllowsInvalid(true); // allow typing before validation
+            formatter.setCommitsOnValidEdit(true);
+
+            // Always format as 6-digit hex without 0x
+            formatter.setFormat(new NumberFormat() {
+                @Override
+                public StringBuffer format(long number, StringBuffer toAppendTo, FieldPosition pos) {
+                    return toAppendTo.append(String.format("%06X", (int) number));
+                }
+
+                @Override
+                public StringBuffer format(double number, StringBuffer toAppendTo, FieldPosition pos) {
+                    return toAppendTo.append(String.format("%06X", (int) number));
+                }
+
+                @Override
+                public Number parse(String source, ParsePosition pos) {
+                    String s = source.trim().replace("#", ""); // allow #RRGGBB too
+                    if (s.length() > 6) s = s.substring(s.length() - 6); // limit length
+                    try {
+                        int value = Integer.parseInt(s, 16) & 0xFFFFFF;
+                        pos.setIndex(source.length());
+                        return value;
+                    } catch (NumberFormatException e) {
+                        pos.setErrorIndex(pos.getIndex());
+                        return null;
+                    }
+                }
+            });
+
+            setEditor(editor);
+
+            // Commit on Enter or focus lost
+            editor.getTextField().addActionListener(e -> commitEditSafe());
+            editor.getTextField().addFocusListener(new FocusAdapter() {
+                @Override
+                public void focusLost(FocusEvent e) {
+                    commitEditSafe();
+                }
+            });
+        }
+
+        private void commitEditSafe() {
+            try {
+                commitEdit();
+            } catch (java.text.ParseException ignored) {}
+        }
+    }
+
+
+
+
+
 
     
     @Override
@@ -253,7 +369,9 @@ public class LRTMPanel extends PayloadPanel {
 
         if (file instanceof LRTMPayload) {
             this.selectedLRTM = (LRTMPayload) file;
-            filterSpinner.setValue(Integer.toUnsignedLong(selectedLRTM.getColorFilter()));
+            
+            filterSwatch.setBackground(new Color(bgrToRgb(selectedLRTM.getColorFilter()) & 0xFFFFFF));
+   
             shadingSelector.setSelectedItem(selectedLRTM.getShadingType());
             unk1Selector.setSelectedItem(selectedLRTM.getUnknownType());
 

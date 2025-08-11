@@ -345,7 +345,7 @@ public class GMIOPanel extends PayloadPanel {
                 
                 @Override
                 public boolean accept(File pathname) {
-                    return !pathname.isDirectory();
+                    return pathname.isDirectory() || pathname.getName().toLowerCase().endsWith(".png");
                 }
                 
                 @Override
