@@ -739,10 +739,10 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setHSEM(new HSEMKCAP(rootKCAP, List.of(hsemEntry)));
         rootKCAP.setXDIP(new XDIPKCAP(rootKCAP, xdioPayload));
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
-        if (!tnoj.isEmpty())
-            rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));
-        
-        loadAnimations();
+        if (!tnoj.isEmpty()) {
+            rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
+            loadAnimations();
+        }
     }
 
     public void loadAnimations() {

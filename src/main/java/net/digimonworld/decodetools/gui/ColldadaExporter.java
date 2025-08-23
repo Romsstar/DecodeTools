@@ -68,7 +68,7 @@ public class ColldadaExporter {
     public void export(File output) throws TransformerException {
         Element root = doc.createElement("COLLADA");
         root.setAttribute("xmlns", "http://www.collada.org/2008/03/COLLADASchema");
-        root.setAttribute("version", "1.5.0");
+        root.setAttribute("version", "1.4.1"); // Instead of 1.5.0
         doc.appendChild(root);
 
         Element asset = doc.createElement("asset");
@@ -90,7 +90,7 @@ public class ColldadaExporter {
             String imageName = gmio.hasName() ? escapeName(gmio.getName()) : "image-" + imageId++;
             image.setAttribute("id", imageName);
             Element initFrom = doc.createElement("init_from");
-            initFrom.appendChild(createTextElement("ref", "images/" + imageName + ".png"));
+            initFrom.setTextContent("images/" + imageName + ".png"); // Direct path, no <ref>
             image.appendChild(initFrom);
             libImages.appendChild(image);
 
