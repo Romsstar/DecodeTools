@@ -37,6 +37,8 @@ public class KCAPPanel extends EditorPanel {
     private JScrollPane scrollPane = new JScrollPane();
     private JTree tree = new JTree((TreeModel) null);
     private JPopupMenu popupMenu = new JPopupMenu();
+    private JMenuItem importKcapItem = new JMenuItem("Import KCAP");
+
     private JMenuItem exportItem = new JMenuItem("Export");
     private JMenuItem refeshItem = new JMenuItem("Refresh");
     
@@ -46,9 +48,64 @@ public class KCAPPanel extends EditorPanel {
     
     public KCAPPanel(EditorModel model) {
         super(model);
-        
+        popupMenu.add(importKcapItem);
         popupMenu.add(exportItem);
         popupMenu.add(refeshItem);
+        
+        importKcapItem.setAction(new FunctionAction("Import KCAP", a -> {
+            if (tree.getSelectionPath() == null ||
+                !(tree.getSelectionPath().getLastPathComponent() instanceof ResPayloadTreeNode))
+                return;
+
+            JFileChooser chooser = new JFileChooser("./");
+            chooser.setDialogTitle("Select exported KCAP to import");
+            chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION)
+                return;
+
+            File file = chooser.getSelectedFile();
+            if (file == null || !file.exists())
+                return;
+
+            ResPayloadTreeNode node = (ResPayloadTreeNode) tree.getSelectionPath().getLastPathComponent();
+            Object selected = node.getPayload();
+
+            try (Access src = new FileAccess(file)) {
+                // Read whatever is in the file; must be a KCAP for this flow
+                ResPayload imported = ResPayload.craft(src);
+                if (!(imported instanceof AbstractKCAP))
+                    return; // (optional) show a dialog/toast: "Not a KCAP file"
+
+                AbstractKCAP newKcap = (AbstractKCAP) imported;
+
+                // If the selected node is the root, just swap the root
+                ResPayloadTreeNode parentNode = (ResPayloadTreeNode) node.getParent();
+                if (parentNode == null) {
+                    getModel().setSelectedResource(newKcap);
+                    return; // getModel().update() happens in setSelectedResource()
+                }
+
+                // Otherwise, replace the selected child inside its parent KCAP
+                Object parentObj = parentNode.getPayload();
+                if (!(parentObj instanceof AbstractKCAP))
+                    return;
+
+                AbstractKCAP parent = (AbstractKCAP) parentObj;
+
+                // Find the child index and replace it in place
+                int idx = parent.getEntries().indexOf(selected);
+                if (idx < 0) return;
+
+                newKcap.setParent(parent);               // keep the tree consistent
+                parent.getEntries().set(idx, newKcap);   // NormalKCAP etc. allow this
+
+                // No manual offset math needed: writers recompute sizes/offsets on export
+                getModel().update();
+            }
+            catch (IOException ex) {
+                Main.LOGGER.severe("Exception while importing KCAP: " + ex.getMessage());
+            }
+        }));
         
         refeshItem.setAction(new FunctionAction("Refresh", e -> getModel().update()));
         

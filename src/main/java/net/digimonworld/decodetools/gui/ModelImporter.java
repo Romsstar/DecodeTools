@@ -519,6 +519,29 @@ public class ModelImporter extends PayloadPanel {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<String, Short> buildMeshNameToTexIdMap(GltfModel model) {
+        Map<String, Short> map = new HashMap<>();
+        model.getMeshModels().forEach(meshModel -> {
+            String name = meshModel.getName();
+            if (name == null) return;
+
+            Object extrasObj = meshModel.getExtras();
+            if (extrasObj instanceof Map) {
+                Map<String, Object> extras = (Map<String, Object>) extrasObj;
+                Object texIdObj = extras.get("texId");
+                if (texIdObj != null) {
+                    short texId = (texIdObj instanceof Number)
+                                  ? ((Number) texIdObj).shortValue()
+                                  : Short.parseShort(texIdObj.toString());
+                    map.put(name, texId);
+                }
+            }
+        });
+        return map;
+    }
+
+    
+    @SuppressWarnings("unchecked")
     private HashMap<Short, Short> readTextureMappingFromMesh(GltfModel model, int meshIndex) {
         HashMap<Short, Short> texMap = new HashMap<>();
         if (meshIndex < model.getMeshModels().size()) {
@@ -570,6 +593,8 @@ public class ModelImporter extends PayloadPanel {
         Map<Short, Short> previousBoneMapping = new HashMap<>(); 
         Map<Integer, List<HSEMEntry>> hsemById = new LinkedHashMap<>();
         
+        Map<String, Short> meshNameToTexId = buildMeshNameToTexIdMap(importedGltfModel);
+        
         int materialId = -1;
         int meshId =-1;
         byte blendFlag = 0x00;
@@ -579,7 +604,7 @@ public class ModelImporter extends PayloadPanel {
 
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
            meshId = readIdFromMesh(importedGltfModel, i);
-          
+   
            //get Material Properties
            int materialIndex = mesh.mMaterialIndex();
           
@@ -591,13 +616,30 @@ public class ModelImporter extends PayloadPanel {
                if ("MASK".equalsIgnoreCase(alphaMode))
                    maskFlag = 0x01;  // Set second byte
           
-               HashMap<Short, Short> texMap = readTextureMappingFromMesh(importedGltfModel, i);
-               meshId= readIdFromMesh(importedGltfModel,i);
+                  meshId= readIdFromMesh(importedGltfModel,i);
                
-               if (!texMap.isEmpty()) {
-            	   
+               String meshName = mesh.mName().dataString();
+               String baseName = meshName.replaceAll("(_sub\\d+|__\\d+|\\.\\d+|_split_\\d+)$", "");
+
+        
+               System.out.println("Mesh " + i + ": " + mesh.mName().dataString());
+               System.out.println("  Base name: " + baseName);
+               System.out.println("  Available tex IDs:");
+               meshNameToTexId.forEach((n, id) -> System.out.println("    " + n + " -> " + id));
+               System.out.println("  Found texId: " + meshNameToTexId.get(baseName));
+
+               Short texId = meshNameToTexId.get(baseName);
+
+               if (texId != null) {
+                   HashMap<Short, Short> texMap = new HashMap<>();
+                   texMap.put((short) 0, texId);
                    hsemPayload.add(new HSEMTextureEntry(texMap));
+                   System.out.println("Assigned texId " + texId + " to mesh " + meshName + " (base " + baseName + ")");
                }
+
+
+               
+    
 
                
            if (mesh.mMaterialIndex() != materialId) {
