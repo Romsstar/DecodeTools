@@ -25,8 +25,16 @@ public class HSEM07Entry implements HSEMEntry {
         this.unkn4 = f;
     }
 
+    public int getCulling() {
+        return unkn1;
+    }
+    
     public int getTransparency() {
         return unkn3_1;
+    }
+    
+    public int getUnk4() {
+        return unkn4;
     }
     
     public int getMask() {
@@ -58,6 +66,10 @@ public class HSEM07Entry implements HSEMEntry {
 
     @Override
     public String toString() {
-        return String.format("Entry07 | U1: %s | U2: %s | U3: %s | U4: %s", unkn1, unkn2, unkn3_1,unkn3_2, unkn4);
+        return String.format(
+            "Entry07 | U1: %s | U2: %s | U3a: %s | U3b: %s | U4: %s",
+            unkn1, unkn2, unkn3_1, unkn3_2, unkn4
+        );
     }
+
 }

@@ -431,10 +431,6 @@ public class ModelImporter extends PayloadPanel {
         return uniqueIds.size();
     }
 
-    private void addMaterialEntry(List<HSEMEntry> entries, int materialId) {
-
-        entries.add(new HSEMMaterialEntry((short) 0, (short) materialId));
-    }
     
     public GltfModel loadGLTFModel(String filePath) {
         GltfModelReader reader = new GltfModelReader();
@@ -496,162 +492,150 @@ public class ModelImporter extends PayloadPanel {
             return "OPAQUE"; // Default if not specified
         }
     }
-
-    @SuppressWarnings("unchecked")
-    private HashMap<Short, Short> readTextureMappingFromPrimitive(GltfModel model, int meshIndex) {
-        HashMap<Short, Short> texMap = new HashMap<>();
-        if (meshIndex < model.getMeshModels().size()) {
-            model.getMeshModels().get(meshIndex).getMeshPrimitiveModels().forEach(primitive -> {
-                Object extrasObj = primitive.getExtras();
-                if (extrasObj instanceof Map) {
-                    Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
-                    if (extrasMap.containsKey("texId")) {
-                        Object texIdObj = extrasMap.get("texId");
-                        short texId = (texIdObj instanceof Number)
-                                      ? ((Number) texIdObj).shortValue()
-                                      : Short.parseShort(texIdObj.toString());
-                        texMap.put((short) 0, texId);
-                    }
-                }
-            });
-        }
-        return texMap;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Short> buildMeshNameToTexIdMap(GltfModel model) {
-        Map<String, Short> map = new HashMap<>();
-        model.getMeshModels().forEach(meshModel -> {
-            String name = meshModel.getName();
-            if (name == null) return;
-
-            Object extrasObj = meshModel.getExtras();
-            if (extrasObj instanceof Map) {
-                Map<String, Object> extras = (Map<String, Object>) extrasObj;
-                Object texIdObj = extras.get("texId");
-                if (texIdObj != null) {
-                    short texId = (texIdObj instanceof Number)
-                                  ? ((Number) texIdObj).shortValue()
-                                  : Short.parseShort(texIdObj.toString());
-                    map.put(name, texId);
-                }
-            }
-        });
-        return map;
-    }
-
-    
-    @SuppressWarnings("unchecked")
-    private HashMap<Short, Short> readTextureMappingFromMesh(GltfModel model, int meshIndex) {
-        HashMap<Short, Short> texMap = new HashMap<>();
-        if (meshIndex < model.getMeshModels().size()) {
-            var meshModel = model.getMeshModels().get(meshIndex);
-            Object extrasObj = meshModel.getExtras();
-            if (extrasObj instanceof Map) {
-                Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
-                if (extrasMap.containsKey("texId")) {
-                    Object texIdObj = extrasMap.get("texId");
-                    short texId = (texIdObj instanceof Number)
-                                  ? ((Number) texIdObj).shortValue()
-                                  : Short.parseShort(texIdObj.toString());
-                    texMap.put((short) 0, texId);
-                }
-            }
-        }
-        return texMap;
-    }
-
-    
+      
    @SuppressWarnings("unchecked")
-    private int readIdFromMesh(GltfModel model, int meshIndex) {
-        if (meshIndex < model.getMeshModels().size()) {
-            var meshModel = model.getMeshModels().get(meshIndex);
-            Object extrasObj = meshModel.getExtras();
-            if (extrasObj instanceof Map) {
-                Map<String, Object> extrasMap = (Map<String, Object>) extrasObj;
-                if (extrasMap.containsKey("id")) {
-                    Object idObj = extrasMap.get("id");
-                    return (idObj instanceof Number)
-                           ? ((Number) idObj).intValue()
-                           : Integer.parseInt(idObj.toString());
-                }
-            }
-        }
-        return -1;
-    }
+   private static <T> Optional<T> getMeshExtra(
+           GltfModel model,
+           int meshIndex,
+           String key,
+           Class<T> type
+   ) {
+       if (meshIndex < 0 || meshIndex >= model.getMeshModels().size())
+           return Optional.empty();
+
+       Object extrasObj = model.getMeshModels().get(meshIndex).getExtras();
+       if (!(extrasObj instanceof Map))
+           return Optional.empty();
+
+       Object value = ((Map<String, Object>) extrasObj).get(key);
+       if (value == null)
+           return Optional.empty();
+
+       if (type.isInstance(value))
+           return Optional.of(type.cast(value));
+
+       if (value instanceof Number && type == Integer.class)
+           return Optional.of(type.cast(((Number) value).intValue()));
+
+       if (value instanceof Number && type == Short.class)
+           return Optional.of(type.cast(((Number) value).shortValue()));
+
+       if (value instanceof Number && type == Float.class)
+           return Optional.of(type.cast(((Number) value).floatValue()));
+       
+       if (value instanceof Number && type == Byte.class)
+    	    return Optional.of(type.cast(((Number) value).byteValue()));
+
+    	if (value instanceof String) {
+    	    try {
+    	        if (type == Integer.class)
+    	            return Optional.of(type.cast(Integer.parseInt((String) value)));
+    	        if (type == Short.class)
+    	            return Optional.of(type.cast(Short.parseShort((String) value)));
+    	        if (type == Float.class)
+    	            return Optional.of(type.cast(Float.parseFloat((String) value)));
+    	        if (type == Byte.class)
+    	            return Optional.of(type.cast(Byte.parseByte((String) value)));
+    	    } catch (NumberFormatException ignored) {}
+    	}
 
 
-    
+
+       return Optional.empty();
+   }
+
+   private float[] parseHeaderData(String s) {
+	    String[] parts = s.trim().split("\\s+");
+	    float[] result = new float[parts.length];
+	    for (int i = 0; i < parts.length; i++) {
+	        result[i] = Float.parseFloat(parts[i]);
+	    }
+	    return result;
+	}
+   
     @SuppressWarnings("resource")
     public void loadModel() {
         List<XDIOPayload> xdioPayload = new ArrayList<>();
         List<XTVOPayload> xtvoPayload = new ArrayList<>();
-        //List<TNOJPayload> tnoj = loadJoints((float) spinner.getValue(), scene);
-        List<TNOJPayload> tnoj = loadJoints(1, scene);
-        List<HSEMEntry> hsemPayload = new ArrayList<>();
-                  
-        Map<Short, Short> previousBoneMapping = new HashMap<>(); 
-        Map<Integer, List<HSEMEntry>> hsemById = new LinkedHashMap<>();
-        
-        Map<String, Short> meshNameToTexId = buildMeshNameToTexIdMap(importedGltfModel);
-        
-        int materialId = -1;
-        int meshId =-1;
-        byte blendFlag = 0x00;
-        byte maskFlag = 0x00;
-        
-        for (int i = 0; i < scene.mNumMeshes(); i++) {
+        List<TNOJPayload> tnoj = loadJoints(1, scene);                  
 
+        Map<Integer, float[]> headerById = new HashMap<>();
+        Map<Integer, List<HSEMEntry>> hsemById = new LinkedHashMap<>();
+        Map<Integer, List<Integer>> meshesById = new LinkedHashMap<>();
+        Map<Integer, Short> lastMaterialById = new HashMap<>();
+        Map<Integer, Map<Short, Short>> prevBoneMappingById = new HashMap<>();
+        Map<Integer, Integer> HSEMPayload_unk1 = new HashMap<>();
+        Map<Integer, Integer> HSEMPayload_unk2 = new HashMap<>();
+
+        for (int i = 0; i < scene.mNumMeshes(); i++) {
+               
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
-           meshId = readIdFromMesh(importedGltfModel, i);
-   
+           int id = getMeshExtra(importedGltfModel, i, "id", Integer.class)
+                   .orElse(-1); 
+           
+           meshesById.computeIfAbsent(id, k -> new ArrayList<>()).add(i);
+           final int meshIndex = i; 
+           List<HSEMEntry> hsemEntries =
+        	        hsemById.computeIfAbsent(id, k -> new ArrayList<>());
+           int shader =
+        		    getMeshExtra(importedGltfModel, i, "shader", Integer.class)
+        		        .orElse(0);
+
+           headerById.computeIfAbsent(id, k ->
+           getMeshExtra(importedGltfModel, meshIndex, "headerData", String.class)
+               .map(this::parseHeaderData)
+               .orElseGet(() -> rootKCAP.getHSEM().get(0).getHeaderData())
+       );
+           HSEMPayload_unk1.computeIfAbsent(id, k ->
+           getMeshExtra(importedGltfModel, meshIndex, "unk1", Integer.class)
+               .orElse(0) // vanilla default
+       );
+
+           HSEMPayload_unk2.computeIfAbsent(id, k ->
+           getMeshExtra(importedGltfModel, meshIndex, "unk2", Integer.class)
+               .orElse(0) // vanilla default
+       );
+
+           
            //get Material Properties
            int materialIndex = mesh.mMaterialIndex();
           
            AIMaterial material = AIMaterial.create(scene.mMaterials().get(materialIndex));
-            String alphaMode = getMaterialAlphaMode(material);
+          	byte blendFlag = 0x00;
+        	byte maskFlag = 0x00; 
               
-               if ("BLEND".equalsIgnoreCase(alphaMode)) 
-                   blendFlag = 0x01; // Set first byte
-               if ("MASK".equalsIgnoreCase(alphaMode))
-                   maskFlag = 0x01;  // Set second byte
-          
-                  meshId= readIdFromMesh(importedGltfModel,i);
+        	switch (getMaterialAlphaMode(material)) {
+            case "BLEND":
+                blendFlag = 1;
+                break;
+            case "MASK":
+                maskFlag = 1;
+                break;
+            default:               
+                break;
+        }
                
-               String meshName = mesh.mName().dataString();
-               String baseName = meshName.replaceAll("(_sub\\d+|__\\d+|\\.\\d+|_split_\\d+)$", "");
+        	short materialId =
+        		    getMeshExtra(importedGltfModel, i, "materialId", Short.class)
+        		        .orElse((short)0);
 
-        
-               System.out.println("Mesh " + i + ": " + mesh.mName().dataString());
-               System.out.println("  Base name: " + baseName);
-               System.out.println("  Available tex IDs:");
-               meshNameToTexId.forEach((n, id) -> System.out.println("    " + n + " -> " + id));
-               System.out.println("  Found texId: " + meshNameToTexId.get(baseName));
+        		Short lastMat = lastMaterialById.get(id);
+        		if (lastMat == null || lastMat != materialId) {
+        		    hsemEntries.add(new HSEMMaterialEntry((short)0, materialId));
+        		    lastMaterialById.put(id, materialId);
+        		}
+       		    			
+        		Short texId =
+        			    getMeshExtra(importedGltfModel, i, "texId", Short.class)
+        			        .orElse(null);
 
-               Short texId = meshNameToTexId.get(baseName);
+        			if (materialId != 0 && texId != null) {
+        			    Map<Short, Short> texMap = new HashMap<>();
+        			    texMap.put((short) 0, texId);
+        			    hsemEntries.add(new HSEMTextureEntry(texMap));
+        			}
 
-               if (texId != null) {
-                   HashMap<Short, Short> texMap = new HashMap<>();
-                   texMap.put((short) 0, texId);
-                   hsemPayload.add(new HSEMTextureEntry(texMap));
-                   System.out.println("Assigned texId " + texId + " to mesh " + meshName + " (base " + baseName + ")");
-               }
-
-
-               
-    
-
-               
-           if (mesh.mMaterialIndex() != materialId) {
-               hsemPayload.add(new HSEMMaterialEntry((short) 0, (short) mesh.mMaterialIndex()));
-           }
-                              
-  
-               
-               materialId = mesh.mMaterialIndex();
-               hsemPayload.add(new HSEM07Entry((short) 0x000F, (short) 0,(byte) blendFlag, (byte) maskFlag,(short) 0));
-           
-       
+             
             AIVector3D.Buffer mVertices = mesh.mVertices();
             AIVector3D.Buffer mNormals = mesh.mNormals();
             AIVector3D.Buffer tex0Buff = mesh.mTextureCoords(0);
@@ -670,7 +654,6 @@ public class ModelImporter extends PayloadPanel {
 
             short offsetCounter = 0;
 
-           // float scale = (float) spinner.getValue();
             float scale = 1;
 
             XTVOAttribute vertexAttrib = new XTVOAttribute(XTVORegisterType.POSITION, offsetCounter, (byte) 3,
@@ -740,21 +723,53 @@ public class ModelImporter extends PayloadPanel {
             }
 
             Map<Short, Short> boneMapping = processBoneMappingAndWeights(mesh, vertices, idxAttrib, wgtAttrib, tnoj);
-            Map<Short, Short> changedBoneMapping = new HashMap<>();
+            Map<Short, Short> prev =
+            	    prevBoneMappingById.computeIfAbsent(id, k -> new HashMap<>());
 
-            for (Map.Entry<Short, Short> entry : boneMapping.entrySet()) {
-                if (!entry.getValue().equals(previousBoneMapping.get(entry.getKey()))) {
-                    changedBoneMapping.put(entry.getKey(), entry.getValue());
-                }
-            }
+            	Map<Short, Short> changedBoneMapping = new HashMap<>();
+            	for (Map.Entry<Short, Short> entry : boneMapping.entrySet()) {
+            	    if (!entry.getValue().equals(prev.get(entry.getKey()))) {
+            	        changedBoneMapping.put(entry.getKey(), entry.getValue());
+            	    }
+            	}
 
-            // Update previous bone mapping for next iteration
-            previousBoneMapping.clear();
-            previousBoneMapping.putAll(boneMapping);
-        
+            	if (!changedBoneMapping.isEmpty()) {
+            	    hsemEntries.add(new HSEMJointEntry(changedBoneMapping));
+            	}
+
+            	prev.clear();
+            	prev.putAll(boneMapping);
+
             if (!changedBoneMapping.isEmpty()) {
-                hsemPayload.add(new HSEMJointEntry(changedBoneMapping));
+                hsemEntries.add(new HSEMJointEntry(changedBoneMapping));
             }
+            
+            short culling =
+            	    getMeshExtra(importedGltfModel, i, "hsem_culling", Short.class)
+            	        .orElse((short) 0x000F); // vanilla default
+
+            	byte transparency =
+            	    getMeshExtra(importedGltfModel, i, "hsem_transparency", Byte.class)
+            	        .orElse(blendFlag); // fallback to material-derived
+
+            	byte mask =
+            	    getMeshExtra(importedGltfModel, i, "hsem_mask", Byte.class)
+            	        .orElse(maskFlag);
+
+                   	short unk4 =
+            	    getMeshExtra(importedGltfModel, i, "hsem_unk4", Short.class)
+            	        .orElse((short) 0);
+
+            	
+            	hsemEntries.add(
+            		    new HSEM07Entry(
+            		        culling,
+            		        (short)0,
+            		        transparency,
+            		        mask,
+            		        unk4
+            		    )
+            		);
 
             List<XTVOVertex> xtvoVertices = vertices.stream().map(XTVOVertex::new)
                                                   .collect(Collectors.toCollection(ArrayList::new));
@@ -764,27 +779,67 @@ public class ModelImporter extends PayloadPanel {
             faces.add(new XDIOFace(face.mIndices().get(0), face.mIndices().get(1), face.mIndices().get(2)));
         }
 
-          xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, (int) shaderBox.getSelectedItem(), (short) 0x3001,
+          xtvoPayload.add(new XTVOPayload(null, attribList, xtvoVertices, shader, (short) 0x3001,
                                          (short) 0, 0x00010309, 0x73, 0x01));
            xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 
-           hsemPayload.add(new HSEMDrawEntry((short) 4, (short) i, (short) i, (short) 0, 0, faces.size() * 3));
-   
-            
+           hsemEntries.add(new HSEMDrawEntry((short) 4, (short) i, (short) i, (short) 0, 0, faces.size() * 3));
+               
        }
    
-        float[] headerArray = rootKCAP.getHSEM().get(0).getHeaderData();
-        HSEMPayload hsemEntry = new HSEMPayload(null, hsemPayload, -1, (short) 0, (byte) 0, (byte) 0, headerArray, 1, 0);
+        List<HSEMPayload> orderedPayloads = new ArrayList<>();
+        HSEMPayload defaultPayload = null;
+        for (Map.Entry<Integer, List<HSEMEntry>> e : hsemById.entrySet()) {
+            int id = e.getKey();
+            float[] headerArray =        	    headerById.getOrDefault(id,        	        rootKCAP.getHSEM().get(0).getHeaderData());
+            int unk1= HSEMPayload_unk1.getOrDefault(id, 0);
+            int unk2 = HSEMPayload_unk2.getOrDefault(id, 0);
+            
+                HSEMPayload payload = new HSEMPayload(
+                null,
+                e.getValue(),
+                id,
+                (short) unk1, //unk1
+                (byte) unk2, //unk2
+                (byte) 0, //unk3
+                headerArray,
+                -1,//unk4
+                0 //unk5
+            );
+
+            if (id == -1) {
+                defaultPayload = payload;   // stash for later
+            } else {
+                orderedPayloads.add(payload);
+            }
+        }
+        if (defaultPayload != null) {
+            orderedPayloads.add(defaultPayload);
+        }
 
         Main.LOGGER.info(String.format("XDIO: %d | XTVO: %d", xdioPayload.size(), xtvoPayload.size()));
        
-        rootKCAP.setHSEM(new HSEMKCAP(rootKCAP, List.of(hsemEntry)));
+        rootKCAP.setHSEM(new HSEMKCAP(rootKCAP, orderedPayloads));
         rootKCAP.setXDIP(new XDIPKCAP(rootKCAP, xdioPayload));
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
-            rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
-            loadAnimations();
+          
+            if (isDigimonModel()) {  
+            	rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));
+                loadAnimations();
+            } else {
+                Main.LOGGER.info("Map detected (" + rootKCAP.getName() + ") → skipping animation import");
+            }
         }
+
+    }
+    
+    private boolean isDigimonModel() {
+        if (rootKCAP == null)
+            return false;
+
+        String name = rootKCAP.getName().toLowerCase();
+        return name.matches(".*digi\\d+.*");
     }
 
     public void loadAnimations() {

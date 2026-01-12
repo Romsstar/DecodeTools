@@ -53,17 +53,17 @@ public class HSEMPayload extends ResPayload {
 
     private List<HSEMEntry> entries = new ArrayList<>();
 
-    public HSEMPayload(AbstractKCAP parent, List<HSEMEntry> entries, int id, short unknown2_1, byte unknown2_2,
-                       byte unknown2_3, float[] headerData, int unknown3, int unknown4) {
+    public HSEMPayload(AbstractKCAP parent, List<HSEMEntry> entries, int id, short unknown1, byte unknown2,
+                       byte unknown3, float[] headerData, int unknown4, int unknown5) {
         super(parent);
 
         this.id = id;
-        this.unknown1 = unknown2_1;
-        this.unknown2 = unknown2_2;
-        this.unknown2 = unknown2_3;
+        this.unknown1 = unknown1;
+        this.unknown2 = unknown2;
+        this.unknown3 = unknown3;
         this.headerData = Arrays.copyOf(headerData, 10);
-        this.unknown4 = unknown3;
-        this.unknown5 = unknown4;
+        this.unknown4 = unknown4;
+        this.unknown5 = unknown5;
         this.entries.addAll(entries);
     }
 

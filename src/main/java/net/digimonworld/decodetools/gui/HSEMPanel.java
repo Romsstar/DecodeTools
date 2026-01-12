@@ -22,83 +22,114 @@ public class HSEMPanel extends PayloadPanel {
     private transient HSEMPayload selected;
     private final JList<HSEMEntry> list = new JList<>();
     private final JScrollPane scrollPane = new JScrollPane();
+    
     private final JLabel lblNewLabel = new JLabel("ID:");
     private final JLabel idLabel = new JLabel("<idLabel>");
-    private final JLabel lblUnk = new JLabel("Unk2:");
+   
+    private final JLabel lblUnk1 = new JLabel("Unk1:");
+    private final JLabel unk1label = new JLabel("<unk1Label>");
+    
+    private final JLabel lblUnk_2 = new JLabel("Unk2:");
     private final JLabel unk2label = new JLabel("<unk2Label>");
-    private final JLabel lblUnk_2 = new JLabel("Unk3:");
+    
+    private final JLabel lblUnk_3 = new JLabel("Unk3:");
     private final JLabel unk3label = new JLabel("<unk3Label>");
-    private final JLabel lblUnk_2_1 = new JLabel("Unk4:");
+    
+    private final JLabel lblUnk_4 = new JLabel("Unk4:");
     private final JLabel unk4label = new JLabel("<unk4Label>");
+    
+    private final JLabel lblUnk_5 = new JLabel("Unk5:");
+    private final JLabel unk5label = new JLabel("<unk5Label>");
+    
     private final JTextPane textPane = new JTextPane();
-    private final JLabel unk2_2label = new JLabel("<unk2_2>");
-    private final JLabel unk2_3label = new JLabel("0");
+
 
     public HSEMPanel(Object obj) {
         setSelectedFile(obj);
 
-        //@formatter:off
-        GroupLayout groupLayout = new GroupLayout(this);
-        groupLayout.setHorizontalGroup(
-            groupLayout.createParallelGroup(Alignment.LEADING)
-                .addGroup(groupLayout.createSequentialGroup()
-                    .addContainerGap()
-                    .addComponent(scrollPane, GroupLayout.PREFERRED_SIZE, 400, GroupLayout.PREFERRED_SIZE)
-                    .addPreferredGap(ComponentPlacement.RELATED)
-                    .addGroup(groupLayout.createParallelGroup(Alignment.LEADING)
-                        .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblNewLabel)
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(idLabel))
-                        .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblUnk)
-                            .addPreferredGap(ComponentPlacement.UNRELATED)
-                            .addComponent(unk2_2label)
-                            .addGap(18)
-                            .addComponent(unk2label, GroupLayout.PREFERRED_SIZE, 24, GroupLayout.PREFERRED_SIZE)
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk2_3label, GroupLayout.PREFERRED_SIZE, 18, GroupLayout.PREFERRED_SIZE))
-                        .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblUnk_2, GroupLayout.PREFERRED_SIZE, 34, GroupLayout.PREFERRED_SIZE)
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk3label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
-                        .addGroup(groupLayout.createSequentialGroup()
-                            .addComponent(lblUnk_2_1, GroupLayout.PREFERRED_SIZE, 34, GroupLayout.PREFERRED_SIZE)
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addComponent(unk4label, GroupLayout.PREFERRED_SIZE, 77, GroupLayout.PREFERRED_SIZE))
-                        .addComponent(textPane, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE))
-                    .addContainerGap(68, Short.MAX_VALUE))
+        GroupLayout layout = new GroupLayout(this);
+        setLayout(layout);
+
+        layout.setAutoCreateGaps(true);
+        layout.setAutoCreateContainerGaps(true);
+
+        // ---------- Horizontal ----------
+        layout.setHorizontalGroup(
+            layout.createSequentialGroup()
+                .addComponent(scrollPane, 200, 200, 200)
+                .addGroup(layout.createParallelGroup(Alignment.LEADING)
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblNewLabel)
+                        .addComponent(idLabel))
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblUnk1)
+                        .addComponent(unk1label))
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblUnk_2)
+                        .addComponent(unk2label))
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblUnk_3)
+                        .addComponent(unk3label))
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblUnk_4)
+                        .addComponent(unk4label))
+
+                    .addGroup(layout.createSequentialGroup()
+                        .addComponent(lblUnk_5)
+                        .addComponent(unk5label))
+
+                    .addComponent(textPane)
+                )
         );
-        groupLayout.setVerticalGroup(
-            groupLayout.createParallelGroup(Alignment.TRAILING)
-                .addGroup(groupLayout.createSequentialGroup()
-                    .addContainerGap()
-                    .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                        .addComponent(scrollPane, GroupLayout.DEFAULT_SIZE, 392, Short.MAX_VALUE)
-                        .addGroup(groupLayout.createSequentialGroup()
-                            .addGroup(groupLayout.createParallelGroup(Alignment.LEADING)
-                                .addComponent(lblNewLabel)
-                                .addComponent(idLabel))
-                            .addGap(4)
-                            .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                                .addComponent(lblUnk)
-                                .addComponent(unk2_2label)
-                                .addComponent(unk2label)
-                                .addComponent(unk2_3label))
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                                .addComponent(lblUnk_2)
-                                .addComponent(unk3label))
-                            .addPreferredGap(ComponentPlacement.RELATED)
-                            .addGroup(groupLayout.createParallelGroup(Alignment.BASELINE)
-                                .addComponent(lblUnk_2_1)
-                                .addComponent(unk4label))
-                            .addGap(28)
-                            .addComponent(textPane, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)))
-                    .addContainerGap())
+
+        // ---------- Vertical ----------
+        layout.setVerticalGroup(
+            layout.createParallelGroup(Alignment.LEADING)
+            .addComponent(scrollPane, GroupLayout.PREFERRED_SIZE,
+                    GroupLayout.DEFAULT_SIZE,
+                    GroupLayout.PREFERRED_SIZE)
+
+
+                .addGroup(layout.createSequentialGroup()
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblNewLabel)
+                        .addComponent(idLabel))
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblUnk1)
+                        .addComponent(unk1label))
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblUnk_2)
+                        .addComponent(unk2label))
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblUnk_3)
+                        .addComponent(unk3label))
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblUnk_4)
+                        .addComponent(unk4label))
+
+                    .addGroup(layout.createParallelGroup(Alignment.BASELINE)
+                        .addComponent(lblUnk_5)
+                        .addComponent(unk5label))
+
+                    .addPreferredGap(ComponentPlacement.UNRELATED)
+                    .addComponent(textPane)
+                )
         );
+
         textPane.setFont(new Font("Inconsolata", Font.PLAIN, 12));
-        setLayout(groupLayout);
+    
+
+        setLayout(layout);
         //@formatter:on
     }
 
@@ -117,11 +148,11 @@ public class HSEMPanel extends PayloadPanel {
         list.setListData(selected.getEntries().toArray(new HSEMEntry[0]));
 
         idLabel.setText(Integer.toString(selected.getId()));
-        unk2label.setText(Integer.toString(selected.getUnknown1()));
-        unk2_2label.setText(Integer.toString(selected.getUnknown2()));
-        unk2_3label.setText(Integer.toString(selected.getUnknown3()));
-        unk3label.setText(Integer.toString(selected.getUnknown4()));
-        unk4label.setText(Integer.toString(selected.getUnknown5()));
+        unk1label.setText(Integer.toString(selected.getUnknown1()));
+        unk2label.setText(Integer.toString(selected.getUnknown2()));
+        unk3label.setText(Integer.toString(selected.getUnknown3()));
+        unk4label.setText(Integer.toString(selected.getUnknown4()));
+        unk5label.setText(Integer.toString(selected.getUnknown5()));
 
         float[] arr = selected.getHeaderData();
         String s = String.format("%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n%10.4f %10.4f\n", arr[0],

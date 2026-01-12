@@ -423,11 +423,15 @@ public class GLTFExporter {
         }
 
         // TODO deal with materials proper, support multiple textures and LRTM
+       
+        if (activeMaterial != null) {
+            extra.put("materialId", Short.toString(activeMaterial.getMaterialId()));
+        }
         if (textureAssignment.getOrDefault((short) 0, (short) -1) != -1) {
             int matIndex = activeMaterial.getMaterialId();
             //int matIndex = 0;
-            Material mat = instance.getMaterials().get(matIndex);
-             
+            Material mat = instance.getMaterials().get(matIndex);                    
+            
             int texIndex = textureAssignment.get((short) 0).intValue();
             extra.put("texId", Short.toString((short) texIndex));
             
@@ -485,6 +489,10 @@ public class GLTFExporter {
             case UNK03:
                 break;
             case UNK07:
+            	extra.put("hsem_culling", Integer.toString(((HSEM07Entry)entry).getCulling()));
+            	extra.put("hsem_transparency", Integer.toString(((HSEM07Entry)entry).getTransparency()));
+            	extra.put("hsem_mask", Integer.toString(((HSEM07Entry)entry).getMask()));
+            	extra.put("hsem_unk4", Integer.toString(((HSEM07Entry)entry).getUnk4()));
                 
                 entry07Mask = ((HSEM07Entry)entry).getMask();
                 entry07Opacity = ((HSEM07Entry)entry).getTransparency();
