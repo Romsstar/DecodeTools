@@ -95,47 +95,52 @@ public class GLTFExporter {
 
     public GLTFExporter(HSMPKCAP hsmp) {
         this.hsmp = hsmp;
+        this.tdtms = new ArrayList<>();
 
-        List<ResPayload> otherPayloads = hsmp.getParent().getEntries();
-        tdtms = new ArrayList<>();
+        // Case 1: Map-style — TDTMs inside HSMP
+        collectChildTDTMs(hsmp, tdtms);
 
-        boolean hsmpflag1 = false; // matching hsmp found
-        boolean hsmpflag2 = false; // hsmp found after tdtms
+        // Case 2: Digimon-style — TDTMs at container level
+        if (isDigimonModel(hsmp)) {
+            AbstractKCAP container = hsmp.getParent();
+            if (container != null) {
+                for (ResPayload p : container.getEntries()) {
+                    if (p.getType() == Payload.KCAP &&
+                        ((AbstractKCAP) p).getKCAPType() == KCAPType.TDTM) {
 
-        // Get all TDTM KCAPs following HSMP until it hits another HSMP
-        for (int i = 0; i < otherPayloads.size(); i++) {
-            if (hsmpflag1 && !hsmpflag2) {
-                if (otherPayloads.get(i).getType() == Payload.KCAP) {
-                    if (((AbstractKCAP)otherPayloads.get(i)).getKCAPType() == KCAPType.TDTM) {
-                        TDTMKCAP tdtm = (TDTMKCAP)otherPayloads.get(i);
-                        tdtms.add(tdtm);
-                    }
-                }
-                else {
-                    tdtms.add(null);
-                }
-            }
-            if (otherPayloads.get(i).getType() == Payload.KCAP) {
-                if (!hsmpflag1) {
-                    if (((AbstractKCAP)otherPayloads.get(i)).getKCAPType() == KCAPType.HSMP) {
-                        HSMPKCAP hsmp2 = (HSMPKCAP)otherPayloads.get(i);
-                        if (hsmp == hsmp2) {
-                            hsmpflag1 = true;
-                        }
-                    }
-                }
-                else {
-                    if (((AbstractKCAP)otherPayloads.get(i)).getKCAPType() == KCAPType.HSMP) {
-                        hsmpflag2 = true;
+                        tdtms.add((TDTMKCAP) p);
                     }
                 }
             }
         }
 
-        this.instance = new GlTF();
+        // Safety: avoid duplicates
+        tdtms = tdtms.stream().distinct().toList();
 
+        this.instance = new GlTF();
         initialize();
     }
+    private static void collectChildTDTMs(AbstractKCAP root, List<TDTMKCAP> out) {
+        for (ResPayload p : root.getEntries()) {
+            if (p.getType() == Payload.KCAP) {
+                AbstractKCAP kcap = (AbstractKCAP) p;
+
+                if (kcap.getKCAPType() == KCAPType.TDTM) {
+                    out.add((TDTMKCAP) kcap);
+                } else {
+                    // recurse into nested KCAPs
+                    collectChildTDTMs(kcap, out);
+                }
+            }
+        }
+    }
+
+    
+    private static boolean isDigimonModel(HSMPKCAP hsmp) {
+        return hsmp.getName() != null &&
+               hsmp.getName().toLowerCase().contains("digi");
+    }
+
 
     public void export(File output) {
         File outputFile = new File(output, hsmp.getName() + ".gltf");

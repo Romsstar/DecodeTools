@@ -627,14 +627,13 @@ public class ModelImporter extends PayloadPanel {
        		    			
         		Short texId =
         			    getMeshExtra(importedGltfModel, i, "texId", Short.class)
-        			        .orElse(null);
+        			        .orElse((short) -1);   // default to -1 instead of null
 
-        			if (materialId != 0 && texId != null) {
+        			if (materialId != 0) {
         			    Map<Short, Short> texMap = new HashMap<>();
-        			    texMap.put((short) 0, texId);
+        			    texMap.put((short) 0, texId); // allow -1 through
         			    hsemEntries.add(new HSEMTextureEntry(texMap));
         			}
-
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
             AIVector3D.Buffer mNormals = mesh.mNormals();
@@ -787,6 +786,7 @@ public class ModelImporter extends PayloadPanel {
                
        }
    
+
         List<HSEMPayload> orderedPayloads = new ArrayList<>();
         HSEMPayload defaultPayload = null;
         for (Map.Entry<Integer, List<HSEMEntry>> e : hsemById.entrySet()) {
@@ -799,7 +799,7 @@ public class ModelImporter extends PayloadPanel {
                 null,
                 e.getValue(),
                 id,
-                (short) unk1, //unk1
+                (short) unk1, //unk1, controls light somehow
                 (byte) unk2, //unk2
                 (byte) 0, //unk3
                 headerArray,
@@ -823,23 +823,9 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setXDIP(new XDIPKCAP(rootKCAP, xdioPayload));
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
-          
-            if (isDigimonModel()) {  
-            	rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));
-                loadAnimations();
-            } else {
-                Main.LOGGER.info("Map detected (" + rootKCAP.getName() + ") → skipping animation import");
-            }
+            rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
+            loadAnimations();
         }
-
-    }
-    
-    private boolean isDigimonModel() {
-        if (rootKCAP == null)
-            return false;
-
-        String name = rootKCAP.getName().toLowerCase();
-        return name.matches(".*digi\\d+.*");
     }
 
     public void loadAnimations() {
@@ -984,20 +970,24 @@ public class ModelImporter extends PayloadPanel {
     @SuppressWarnings("resource")
     private List<TNOJPayload> loadJoints(float scale, AIScene scene) {
         List<TNOJPayload> tnojList = new ArrayList<>();
-        List<String> names = new ArrayList<>();
 
-        // Process each node to load joints and their corresponding bone matrices
+        Map<String, Integer> jointIndex = new HashMap<>();
+        for (int i = 0; i < jointNodes.size(); i++) {
+            jointIndex.put(jointNodes.get(i).mName().dataString(), i);
+        }
+
         for (AINode nodes : jointNodes) {
             String name = nodes.mName().dataString();
-
 
             if (!name.startsWith(JOINT_PREFIXES[0]) && !name.startsWith(JOINT_PREFIXES[1]))
                 continue;
 
             AINode parent = nodes.mParent();
-            int parentId = parent != null ? names.indexOf(parent.mName().dataString()) : -1;
+            int parentId = parent != null
+                    ? jointIndex.getOrDefault(parent.mName().dataString(), -1)
+                    : -1;
 
-            Matrix4f matrix = new Matrix4f(aiMatrix4x4ToMatrix4f(nodes.mTransformation()));
+            Matrix4f matrix = aiMatrix4x4ToMatrix4f(nodes.mTransformation());
 
             Vector3f translation = new Vector3f();
             Quaternionf rotation = new Quaternionf();
@@ -1005,30 +995,66 @@ public class ModelImporter extends PayloadPanel {
 
             matrix.getTranslation(translation);
             matrix.getNormalizedRotation(rotation);
+            rotation.normalize();
             matrix.getScale(jointscale);
 
-            float[] translationArray = { translation.x * scale, translation.y * scale, translation.z * scale, 0.0f };
-            float[] rotationArray = { rotation.x, rotation.y, rotation.z, rotation.w };
-            float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f }; //0.0f is padding
-            float[] localScaleVector = { jointscale.x, jointscale.y, jointscale.z, 0.0f };// 0.0f is padding
+            float[] translationArray = {
+                translation.x * scale,
+                translation.y * scale,
+                translation.z * scale,
+                0.0f
+            };
 
-            Matrix4f globalTransform = computeGlobalTransform(nodes); // Get Global Transformation Matrix
-            // Translation needs scale applied    
-            Vector3f translation2 = new Vector3f();
-            globalTransform.getTranslation(translation2);
-            globalTransform.setTranslation(translation2.x * scale, translation2.y * scale, translation2.z * scale); 
-                                                                              
-            // Transposing from Column to Row Order, inverting and putting into the array
-            float[] ibpm = matrixToArray(transposeMatrix(globalTransform.invert())); 
-            
-            names.add(name);
+            float[] rotationArray = {
+                rotation.x, rotation.y, rotation.z, rotation.w
+            };
 
-            tnojList.add(new TNOJPayload(null, parentId, name, 0, 0, ibpm, translationArray, rotationArray, scaleArray,
-                                         localScaleVector));
+            float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
+            float[] localScaleVector = {
+                jointscale.x, jointscale.y, jointscale.z, 0.0f
+            };
 
+            Matrix4f inverseBind;
+            Optional<AIBone> boneOpt = findBoneByName(scene, name);
+
+            if (boneOpt.isPresent()) {
+                inverseBind = aiMatrix4x4ToMatrix4f(boneOpt.get().mOffsetMatrix());
+            } else {
+                // Legacy fallback (Digimon-safe)
+                inverseBind = computeGlobalTransform(nodes).invert();
+            }
+
+            float[] ibpm = matrixToArray(transposeMatrix(inverseBind));
+
+            tnojList.add(new TNOJPayload(
+                null,
+                parentId,
+                name,
+                0,
+                0,
+                ibpm,
+                translationArray,
+                rotationArray,
+                scaleArray,
+                localScaleVector
+            ));
         }
 
         return tnojList;
+    }
+
+    
+    private Optional<AIBone> findBoneByName(AIScene scene, String name) {
+        for (int i = 0; i < scene.mNumMeshes(); i++) {
+            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
+            for (int j = 0; j < mesh.mNumBones(); j++) {
+                AIBone bone = AIBone.create(mesh.mBones().get(j));
+                if (bone.mName().dataString().equals(name)) {
+                    return Optional.of(bone);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private static List<AINode> extractJointNodes(AINode root) {
