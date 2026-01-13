@@ -72,6 +72,7 @@ import net.digimonworld.decodetools.res.payload.hsem.HSEMMaterialEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMTextureEntry;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVOAttribute;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVORegisterType;
+import net.digimonworld.decodetools.res.payload.xtvo.XTVOValueType;
 import net.digimonworld.decodetools.res.payload.xtvo.XTVOVertex;
 
 public class GLTFExporter {
@@ -347,6 +348,8 @@ public class GLTFExporter {
             }
         }
     }
+ 
+
 
     private void processHSEMDraw(HSEMDrawEntry draw, Map<String, String> hsemExtra) {
         final XTVOPayload xtvo = hsmp.getXTVP().get(draw.getVertexId());
@@ -358,119 +361,289 @@ public class GLTFExporter {
         extra.put("mTex1", floatArrayToString(xtvo.getMTex1()));
         extra.put("mTex2", floatArrayToString(xtvo.getMTex2()));
         extra.put("mTex3", floatArrayToString(xtvo.getMTex3()));
+        extra.put("hasNormal", Boolean.toString(xtvo.getAttribute(XTVORegisterType.NORMAL).isPresent()));
+
         extra.putAll(hsemExtra);
 
         MeshPrimitive primitive = new MeshPrimitive();
 
-        // build indices
+     // build indices (already correct)
         List<Integer> indices = xdio.getFaces().stream()
-                                    .flatMap(a -> Stream.of(a.getVert1(), a.getVert2(), a.getVert3()))
-                                    .collect(Collectors.toList());
+            .flatMap(a -> Stream.of(a.getVert1(), a.getVert2(), a.getVert3()))
+            .collect(Collectors.toList());
 
         int facesBuffer = intListToBuffer(indices);
-        int indexBufferView = createBufferView(facesBuffer, GL_ELEMENT_ARRAY_BUFFER, "facesBufferView");
-        int indexAccessor = createAccessor(indexBufferView, GL_UNSIGNED_INT, indices.size(), "SCALAR", "INDICES");
+        int indexBufferView = createBufferView(
+            facesBuffer,
+            GL_ELEMENT_ARRAY_BUFFER,
+            "facesBufferView"
+        );
+        int indexAccessor = createAccessor(
+            indexBufferView,
+            GL_UNSIGNED_INT,
+            indices.size(),
+            "SCALAR",
+            "INDICES"
+        );
         primitive.setIndices(indexAccessor);
 
-        // build positions
-        int posBuffer = vertexAttribToBuffer(xtvo.getVertices(), XTVORegisterType.POSITION);
-        int posBufferView = createBufferView(posBuffer, GL_ARRAY_BUFFER, "posBufferView");
-        int posAccessor = createPosAccessor(posBufferView, xtvo.getVertices());
-        primitive.addAttributes("POSITION", posAccessor);
+        // =======================
+        // POSITION
+        // =======================
+        {
+        	
+            int posBuffer = vertexAttribToBuffer(
+                xtvo.getVertices(),
+                XTVORegisterType.POSITION
+            );
+            int posBufferView = createBufferView(
+                posBuffer,
+                GL_ARRAY_BUFFER,
+                "posBufferView"
+            );
 
-        // build normals
+            XTVOAttribute p = xtvo.getAttribute(XTVORegisterType.POSITION).get();
+            System.out.println(
+            	    "POSITION: " +
+            	    p.getValueType() +
+            	    " scale=" + p.getScale()
+            	);
+            int posAccessor = createAccessorFromXTVO(
+                posBufferView,
+                p,
+                vertexCount,
+                "POSITION"
+            );
+            primitive.addAttributes("POSITION", posAccessor);
+        }
+
+        // =======================
+        // NORMAL
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.NORMAL).isPresent()) {
-            int normalBuffer = vertexAttribToBuffer(xtvo.getVertices(), XTVORegisterType.NORMAL);
-            int normalBufferView = createBufferView(normalBuffer, GL_ARRAY_BUFFER, "normalBufferView");
-            int normalAccessor = createAccessor(normalBufferView, GL_FLOAT, vertexCount, "VEC3", "NORMALS");
+            int normalBuffer = vertexAttribToBuffer(
+                xtvo.getVertices(),
+                XTVORegisterType.NORMAL
+            );
+            int normalBufferView = createBufferView(
+                normalBuffer,
+                GL_ARRAY_BUFFER,
+                "normalBufferView"
+            );
+
+            XTVOAttribute n = xtvo.getAttribute(XTVORegisterType.NORMAL).get();
+            int normalAccessor = createAccessorFromXTVO(
+                normalBufferView,
+                n,
+                vertexCount,
+                "NORMAL"
+            );
             primitive.addAttributes("NORMAL", normalAccessor);
         }
 
-        // build colors
+        // =======================
+        // COLOR
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.COLOR).isPresent()) {
-            int colorsBuffer = vertexAttribToBuffer(xtvo.getVertices(), XTVORegisterType.COLOR);
-            int colorsBufferView = createBufferView(colorsBuffer, GL_ARRAY_BUFFER, "colorBufferView");
-            int colorsAccessor = createAccessor(colorsBufferView, GL_FLOAT, vertexCount, "VEC4", "COLOR");
-            primitive.addAttributes("COLOR_0", colorsAccessor);
+            int colorBuffer = vertexAttribToBuffer(
+                xtvo.getVertices(),
+                XTVORegisterType.COLOR
+            );
+            int colorBufferView = createBufferView(
+                colorBuffer,
+                GL_ARRAY_BUFFER,
+                "colorBufferView"
+            );
+
+            XTVOAttribute c = xtvo.getAttribute(XTVORegisterType.COLOR).get();
+            int colorAccessor = createAccessorFromXTVO(
+                colorBufferView,
+                c,
+                vertexCount,
+                "COLOR"
+            );
+            primitive.addAttributes("COLOR_0", colorAccessor);
         }
 
-        // build UVSet 0
+        // =======================
+        // TEXCOORD_0 (float by construction)
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.TEXTURE0).isPresent()) {
-            int tex0Buffer = textureCoordToBuffer(xtvo.getVertices(), xtvo.getMTex0());
-            int tex0BufferView = createBufferView(tex0Buffer, GL_ARRAY_BUFFER, "tex0BufferView");
-            int tex0Accessor = createAccessor(tex0BufferView, GL_FLOAT, vertexCount, "VEC2", "TEXTURE0");
+            int tex0Buffer = textureCoordToBuffer(
+                xtvo.getVertices(),
+                xtvo.getMTex0()
+            );
+            int tex0BufferView = createBufferView(
+                tex0Buffer,
+                GL_ARRAY_BUFFER,
+                "tex0BufferView"
+            );
+            int tex0Accessor = createAccessor(
+                tex0BufferView,
+                GL_FLOAT,
+                vertexCount,
+                "VEC2",
+                "TEXCOORD_0"
+            );
             primitive.addAttributes("TEXCOORD_0", tex0Accessor);
         }
 
-        // build UVSet 1
+        // =======================
+        // TEXCOORD_1
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.TEXTURE1).isPresent()) {
-            int tex1Buffer = textureCoordToBuffer(xtvo.getVertices(), xtvo.getMTex1());
-            int tex1BufferView = createBufferView(tex1Buffer, GL_ARRAY_BUFFER, "tex1BufferView");
-            int tex1Accessor = createAccessor(tex1BufferView, GL_FLOAT, vertexCount, "VEC2", "TEXTURE1");
+            int tex1Buffer = textureCoordToBuffer(
+                xtvo.getVertices(),
+                xtvo.getMTex1()
+            );
+            int tex1BufferView = createBufferView(
+                tex1Buffer,
+                GL_ARRAY_BUFFER,
+                "tex1BufferView"
+            );
+            int tex1Accessor = createAccessor(
+                tex1BufferView,
+                GL_FLOAT,
+                vertexCount,
+                "VEC2",
+                "TEXCOORD_1"
+            );
             primitive.addAttributes("TEXCOORD_1", tex1Accessor);
         }
 
-        // build vertex weights
+        // =======================
+        // WEIGHTS
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.WEIGHT).isPresent()) {
-            int weightsBuffer = vertexAttribToBuffer(xtvo.getVertices(), XTVORegisterType.WEIGHT);
-            int weightsBufferView = createBufferView(weightsBuffer, GL_ARRAY_BUFFER, "weightsBufferView");
-            int weightsAccessor = createAccessor(weightsBufferView, GL_FLOAT, vertexCount, "VEC4", "WEIGHTS");
+            int weightsBuffer = vertexAttribToBuffer(
+                xtvo.getVertices(),
+                XTVORegisterType.WEIGHT
+            );
+            int weightsBufferView = createBufferView(
+                weightsBuffer,
+                GL_ARRAY_BUFFER,
+                "weightsBufferView"
+            );
+
+            XTVOAttribute w = xtvo.getAttribute(XTVORegisterType.WEIGHT).get();
+            int weightsAccessor = createAccessorFromXTVO(
+                weightsBufferView,
+                w,
+                vertexCount,
+                "WEIGHTS"
+            );
             primitive.addAttributes("WEIGHTS_0", weightsAccessor);
-
         }
 
-        // build joint mapping
+        // =======================
+        // JOINTS (indices, never normalized)
+        // =======================
         if (xtvo.getAttribute(XTVORegisterType.IDX).isPresent()) {
-            int jointsBuffer = jointDataToBuffer(xtvo.getVertices(), jointAssignment);
-            int jointsBufferView = createBufferView(jointsBuffer, GL_ARRAY_BUFFER, "jointsBufferView");
-            int jointsAccessor = createAccessor(jointsBufferView, GL_UNSIGNED_BYTE, vertexCount, "VEC4", "JOINTS");
-            primitive.addAttributes("JOINTS_0", jointsAccessor);
+            int jointsBuffer = jointDataToBuffer(
+                xtvo.getVertices(),
+                jointAssignment
+            );
+            int jointsBufferView = createBufferView(
+                jointsBuffer,
+                GL_ARRAY_BUFFER,
+                "jointsBufferView"
+            );
+
+            Accessor jointsAccessor = new Accessor();
+            jointsAccessor.setBufferView(jointsBufferView);
+            jointsAccessor.setComponentType(GL_UNSIGNED_BYTE);
+            jointsAccessor.setCount(vertexCount);
+            jointsAccessor.setType("VEC4");
+            jointsAccessor.setName("JOINTS");
+            jointsAccessor.setNormalized(false);
+
+            instance.addAccessors(jointsAccessor);
+            primitive.addAttributes(
+                "JOINTS_0",
+                instance.getAccessors().size() - 1
+            );
         }
 
-        // TODO deal with materials proper, support multiple textures and LRTM
-       
+        // =======================
+        // MATERIALS
+        // =======================
+     // --- MATERIAL ASSIGNMENT (FIXED) ---
+        int baseMatIndex = 0;
         if (activeMaterial != null) {
+            baseMatIndex = activeMaterial.getMaterialId();
             extra.put("materialId", Short.toString(activeMaterial.getMaterialId()));
         }
-        if (textureAssignment.getOrDefault((short) 0, (short) -1) != -1) {
-            int matIndex = activeMaterial.getMaterialId();
-            //int matIndex = 0;
-            Material mat = instance.getMaterials().get(matIndex);                    
-            
-            int texIndex = textureAssignment.get((short) 0).intValue();
-            extra.put("texId", Short.toString((short) texIndex));
-            
-            TextureInfo baseColorTextureInfo = new TextureInfo();
-            baseColorTextureInfo.setIndex(texIndex);
 
-            mat.getPbrMetallicRoughness().setBaseColorTexture(baseColorTextureInfo);
-             
-            if (entry07Opacity > 0) {
-                Material newMat = new Material();
-                newMat.setDoubleSided(true);
-                newMat.setName(mat.getName() + "_blend");
-                newMat.setAlphaMode("BLEND");
-                MaterialPbrMetallicRoughness pbrMetallicRoughness = mat.getPbrMetallicRoughness();
-                newMat.setPbrMetallicRoughness(pbrMetallicRoughness);
-                instance.addMaterials(newMat);
-                primitive.setMaterial(instance.getMaterials().size() - 1);
-            }
-            else if (entry07Mask > 0)
-            {
-                Material newMat = new Material();
-                newMat.setDoubleSided(true);
-                newMat.setName(mat.getName() + "_mask");
-                newMat.setAlphaMode("MASK");
-                newMat.setAlphaCutoff(0.2f);
-                MaterialPbrMetallicRoughness pbrMetallicRoughness = mat.getPbrMetallicRoughness();
-                newMat.setPbrMetallicRoughness(pbrMetallicRoughness);
-                instance.addMaterials(newMat);
-                primitive.setMaterial(instance.getMaterials().size() - 1);
-            }
-            else {
-                primitive.setMaterial(matIndex);
-            }
+        // Guard: ensure baseMatIndex is valid
+        if (baseMatIndex < 0 || baseMatIndex >= instance.getMaterials().size()) {
+            baseMatIndex = 0;
         }
+
+        // Resolve texture (may be -1)
+        short texId = textureAssignment.getOrDefault((short)0, (short)-1);
+        extra.put("texId", Short.toString(texId));
+
+        // Start from the base material
+        Material baseMat = instance.getMaterials().get(baseMatIndex);
+
+        // If there is a texture, link it
+        if (texId != -1) {
+            TextureInfo baseColorTextureInfo = new TextureInfo();
+            baseColorTextureInfo.setIndex((int)texId);
+            if (baseMat.getPbrMetallicRoughness() == null) {
+                baseMat.setPbrMetallicRoughness(new MaterialPbrMetallicRoughness());
+            }
+            baseMat.getPbrMetallicRoughness().setBaseColorTexture(baseColorTextureInfo);
+        }
+
+        // If HSEM says BLEND or MASK, force a derived material
+        if (entry07Opacity > 0) {
+            Material newMat = new Material();
+            newMat.setName(baseMat.getName() + "_blend");
+            newMat.setDoubleSided(true);
+            newMat.setAlphaMode("BLEND");
+
+            // IMPORTANT: don't re-use the same PBR object reference
+            MaterialPbrMetallicRoughness src = baseMat.getPbrMetallicRoughness();
+            MaterialPbrMetallicRoughness dst = new MaterialPbrMetallicRoughness();
+            if (src != null) {
+                dst.setBaseColorFactor(src.getBaseColorFactor());
+                dst.setBaseColorTexture(src.getBaseColorTexture());
+                dst.setMetallicFactor(src.getMetallicFactor());
+                dst.setRoughnessFactor(src.getRoughnessFactor());
+                dst.setMetallicRoughnessTexture(src.getMetallicRoughnessTexture());
+            }
+            newMat.setPbrMetallicRoughness(dst);
+
+            instance.addMaterials(newMat);
+            primitive.setMaterial(instance.getMaterials().size() - 1);
+
+        } else if (entry07Mask > 0) {
+            Material newMat = new Material();
+            newMat.setName(baseMat.getName() + "_mask");
+            newMat.setDoubleSided(true);
+            newMat.setAlphaMode("MASK");
+            newMat.setAlphaCutoff(0.2f);
+
+            MaterialPbrMetallicRoughness src = baseMat.getPbrMetallicRoughness();
+            MaterialPbrMetallicRoughness dst = new MaterialPbrMetallicRoughness();
+            if (src != null) {
+                dst.setBaseColorFactor(src.getBaseColorFactor());
+                dst.setBaseColorTexture(src.getBaseColorTexture());
+                dst.setMetallicFactor(src.getMetallicFactor());
+                dst.setRoughnessFactor(src.getRoughnessFactor());
+                dst.setMetallicRoughnessTexture(src.getMetallicRoughnessTexture());
+            }
+            newMat.setPbrMetallicRoughness(dst);
+
+            instance.addMaterials(newMat);
+            primitive.setMaterial(instance.getMaterials().size() - 1);
+
+        } else {
+            // Always set something, even if texId == -1
+            primitive.setMaterial(baseMatIndex);
+        }
+
         
         
         Mesh mesh = new Mesh();
@@ -519,6 +692,7 @@ public class GLTFExporter {
 
             case DRAW:
                 processHSEMDraw((HSEMDrawEntry) entry, extra);
+                
                 break;
         }
 
@@ -634,28 +808,127 @@ public class GLTFExporter {
         return instance.getBuffers().size() - 1;
     }
 
-    private int vertexAttribToBuffer(List<XTVOVertex> vertices, XTVORegisterType type) {
-        List<Float> floatList = vertices.stream().map(a -> a.getParameter(type))
-                                        .flatMap(a -> a.getValue().stream().map(b -> a.getKey().getValue(b)))
-                                        .collect(Collectors.toList());
+    private int vertexAttribToBuffer(
+            List<XTVOVertex> vertices,
+            XTVORegisterType type
+    ) {
+        Entry<XTVOAttribute, List<Number>> first =
+                vertices.get(0).getParameter(type);
 
-        // Convert List<Float> to ByteBuffer
-        ByteBuffer byteBuffer = ByteBuffer.allocate(floatList.size() * Float.BYTES);
-        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        XTVOAttribute attr = first.getKey();
+        XTVOValueType valueType = attr.getValueType();
+        int components = attr.getCount();
 
-        for (float f : floatList)
-            byteBuffer.putFloat(f);
+        int componentSize;
+        if (type == XTVORegisterType.POSITION) {
+            componentSize = 4; // FLOAT after baking
+        } else {
+            switch (valueType) {
+                case BYTE:
+                case UBYTE:componentSize = 1; break;
+                case SHORT : componentSize = 2; break;
+                case FLOAT : componentSize = 4; break;
+                default: throw new IllegalStateException();
+            
+        }
 
-        byteBuffer.flip(); // Prepare the buffer for reading
+        }
+
+        ByteBuffer buffer = ByteBuffer.allocate(
+                vertices.size() * components * componentSize
+        );
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+
+        for (XTVOVertex v : vertices) {
+            Entry<XTVOAttribute, List<Number>> entry = v.getParameter(type);
+
+            for (Number n : entry.getValue()) {
+                switch (valueType) {
+                    case FLOAT:
+                        // preserve existing behavior exactly
+                        buffer.putFloat(attr.getValue(n));
+                        break;
+
+                    case BYTE:
+                    case UBYTE:
+                        buffer.put(n.byteValue());
+                        break;
+
+                    case SHORT:
+                        if (type == XTVORegisterType.POSITION) {
+                            // bake scale here
+                            buffer.putFloat(n.shortValue() * attr.getScale());
+                        } else {
+                            buffer.putShort(n.shortValue());
+                        }
+                        break;
+
+                }
+            }
+        }
+
+        buffer.flip();
 
         Buffer gltfBuffer = new Buffer();
-        gltfBuffer.setByteLength(byteBuffer.remaining());
-        gltfBuffer.setUri(BUFFER_URI + Base64.getEncoder().encodeToString(byteBuffer.array()));
+        gltfBuffer.setByteLength(buffer.remaining());
+        gltfBuffer.setUri(BUFFER_URI + Base64.getEncoder().encodeToString(buffer.array()));
         instance.addBuffers(gltfBuffer);
 
         return instance.getBuffers().size() - 1;
     }
 
+    private int createAccessorFromXTVO(
+            int bufferView,
+            XTVOAttribute attr,
+            int vertexCount,
+            String name
+    ) {
+    	
+        Accessor accessor = new Accessor();
+        accessor.setBufferView(bufferView);
+        accessor.setCount(vertexCount);
+        accessor.setName(name);
+
+        if (name.equals("POSITION")) {
+            accessor.setComponentType(GL_FLOAT);
+            accessor.setNormalized(false);
+            accessor.setType("VEC3");
+            instance.addAccessors(accessor);
+            return instance.getAccessors().size() - 1;
+        }
+
+        // component type
+        switch (attr.getValueType()) {
+            case FLOAT:
+                accessor.setComponentType(GL_FLOAT);
+                break;
+
+            case BYTE:
+            case UBYTE:
+                accessor.setComponentType(GL_UNSIGNED_BYTE);
+                accessor.setNormalized(true); 
+                break;
+
+            case SHORT:
+                accessor.setComponentType(de.javagl.jgltf.model.GltfConstants.GL_SHORT);
+                accessor.setNormalized(name.equals("NORMAL")
+                );
+                break;
+        }
+        // vector size
+        switch (attr.getCount()) {
+            case 1 -> accessor.setType("SCALAR");
+            case 2 -> accessor.setType("VEC2");
+            case 3 -> accessor.setType("VEC3");
+            case 4 -> accessor.setType("VEC4");
+            default -> throw new IllegalStateException("Unsupported component count");
+        }
+
+        instance.addAccessors(accessor);
+        return instance.getAccessors().size() - 1;
+    }
+
+    
     private int jointDataToBuffer(List<XTVOVertex> vertices, Map<Short, Short> jointMapping) {
         ByteBuffer jointsBuffer = ByteBuffer.allocate(vertices.size() * 4);
         jointsBuffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -760,6 +1033,7 @@ public class GLTFExporter {
         }
     }
 
+   
     private static String floatArrayToString(float[] arr) {
         StringBuilder builder = new StringBuilder();
 

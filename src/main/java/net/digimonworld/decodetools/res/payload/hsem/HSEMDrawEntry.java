@@ -1,6 +1,8 @@
 package net.digimonworld.decodetools.res.payload.hsem;
 
 import net.digimonworld.decodetools.core.Access;
+import net.digimonworld.decodetools.res.payload.XTVOPayload;
+import net.digimonworld.decodetools.res.kcap.XTVPKCAP;
 
 public class HSEMDrawEntry implements HSEMEntry {
  // probably BeginMode mapping? Valid values 0-8
@@ -22,7 +24,8 @@ public class HSEMDrawEntry implements HSEMEntry {
     private short unkn2;
     private int vertexOffset; // where to start reading the vertices from
     private int vertexCount;
-    
+    private int drawIndex = -1;
+    private long xtvoOffset = -1;
     public HSEMDrawEntry(short unkn1, short vertexId, short indexId, short unk2, int vertexOffset, int vertexCount) {
         this.unkn1 = unkn1;
         this.vertexId = vertexId;
@@ -72,11 +75,34 @@ public class HSEMDrawEntry implements HSEMEntry {
         return HSEMEntryType.DRAW;
     }
     
+    public void setDrawIndex(int drawIndex) {
+        this.drawIndex = drawIndex;
+    }
+
+    public int getDrawIndex() {
+        return drawIndex;
+    }
+    
+    public void setXtvoOffset(long xtvoOffset) {
+        this.xtvoOffset = xtvoOffset;
+    }
+
+    public long getXtvoOffset() {
+        return xtvoOffset;
+    }
 
     @Override
     public String toString() {
-        return String.format("Draw | M: %s | VID: %s | FID: %s | U2: %s | VOff: %s | VCnt: %s", 
-                             unkn1, vertexId, indexId, unkn2, vertexOffset, vertexCount);
-        
+        return String.format(
+            "Draw #%d | XTVO @ 0x%X | M:%d | VID:%d | FID:%d | VOff:%d | VCnt:%d",
+            drawIndex,
+            xtvoOffset,
+            unkn1,
+            vertexId,
+            indexId,
+            vertexOffset,
+            vertexCount
+        );
     }
+
 }

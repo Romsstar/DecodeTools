@@ -566,7 +566,7 @@ public class ModelImporter extends PayloadPanel {
         Map<Integer, Map<Short, Short>> prevBoneMappingById = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk1 = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk2 = new HashMap<>();
-
+    
         for (int i = 0; i < scene.mNumMeshes(); i++) {
                
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
@@ -627,7 +627,7 @@ public class ModelImporter extends PayloadPanel {
        		    			
         		Short texId =
         			    getMeshExtra(importedGltfModel, i, "texId", Short.class)
-        			        .orElse((short) -1);   // default to -1 instead of null
+        			        .orElse((short) 0);   // default to -1 instead of null
 
         			if (materialId != 0) {
         			    Map<Short, Short> texMap = new HashMap<>();
@@ -636,7 +636,8 @@ public class ModelImporter extends PayloadPanel {
         			}
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
-            AIVector3D.Buffer mNormals = mesh.mNormals();
+            boolean hasNormal =getMeshExtra(importedGltfModel, i, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
+          	AIVector3D.Buffer mNormals = (hasNormal ? mesh.mNormals() : null);
             AIVector3D.Buffer tex0Buff = mesh.mTextureCoords(0);
             AIVector3D.Buffer tex1Buff = mesh.mTextureCoords(1);
             AIColor4D.Buffer mColor = mesh.mColors(0);
@@ -664,8 +665,8 @@ public class ModelImporter extends PayloadPanel {
             offsetCounter += mNormals != null ? 3 : 0;
 
             XTVOAttribute colorAttrib = new XTVOAttribute(XTVORegisterType.COLOR, offsetCounter, (byte) 4,
-                                                          XTVOValueType.UBYTE, 1.0f / 255f);
-            offsetCounter += mColor != null ? 4 : 0;
+                                                          XTVOValueType.UBYTE, 1.0f/255f);
+            offsetCounter += 4;
 
             XTVOAttribute idxAttrib = new XTVOAttribute(XTVORegisterType.IDX, offsetCounter, (byte) 4,
                                                         XTVOValueType.UBYTE, 1.0f / 255f);
@@ -697,18 +698,28 @@ public class ModelImporter extends PayloadPanel {
             for (int j = 0; j < mesh.mNumVertices(); j++) {
                 SortedMap<XTVOAttribute, List<Number>> vertex = new TreeMap<>();
 
+                //Position
                 AIVector3D pos = mVertices.get(j);
                 vertex.put(vertexAttrib, List.of(pos.x() * vertexScale, pos.y() * vertexScale, pos.z() * vertexScale));
 
+                //Normals
                 if (mNormals != null) {
                     AIVector3D normal = mNormals.get(j);
                     vertex.put(normalAttrib, List.of(normal.x() * 127.0f, normal.y() * 127.0f, normal.z() * 127.0f));
                 }
+                
+                //Colors                
                 if (mColor != null) {
-                    AIColor4D color = mColor.get(j);
-                    vertex.put(colorAttrib,
-                               List.of(color.r() * 255f, color.g() * 255f, color.b() * 255f, color.a() * 255f));
-                }
+                    AIColor4D color = mColor.get(j);     
+                 vertex.put(colorAttrib, List.of(
+                     color.r()*255.0f,  
+                     color.g()*255.0f,  
+                     color.b()*255.0f,
+                     color.a() *255.0f     
+                 ));
+
+
+                       }
                 if (tex0Buff != null) {
                     AIVector3D tex0 = tex0Buff.get(j);
                     vertex.put(tex0Attrib, List.of(tex0.x(), tex0.y()));
@@ -731,17 +742,11 @@ public class ModelImporter extends PayloadPanel {
             	        changedBoneMapping.put(entry.getKey(), entry.getValue());
             	    }
             	}
-
-            	if (!changedBoneMapping.isEmpty()) {
-            	    hsemEntries.add(new HSEMJointEntry(changedBoneMapping));
-            	}
-
-            	prev.clear();
-            	prev.putAll(boneMapping);
-
+           
             if (!changedBoneMapping.isEmpty()) {
                 hsemEntries.add(new HSEMJointEntry(changedBoneMapping));
-            }
+            }	prev.clear();
+            	prev.putAll(boneMapping);
             
             short culling =
             	    getMeshExtra(importedGltfModel, i, "hsem_culling", Short.class)
@@ -824,7 +829,7 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
             rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
-            loadAnimations();
+         //   loadAnimations();
         }
     }
 
@@ -834,10 +839,7 @@ public class ModelImporter extends PayloadPanel {
         for (int i = 0; i < scene.mNumAnimations(); i++) {
             AIAnimation animation = AIAnimation.create(scene.mAnimations().get(i));
 
-            //System.out.println(animation.mName().dataString());
-
             int index;
-
             switch(animation.mName().dataString()) {
                 case "idle": index = 0; break;
                 case "run": index = 1; break;
@@ -857,7 +859,8 @@ public class ModelImporter extends PayloadPanel {
             }
 
             if (index > -1 && index < 14) {
-                TDTMKCAP newTDTM = new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float)spinner.getValue());
+                TDTMKCAP newTDTM =
+                    new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float) spinner.getValue());
 
                 if (index < tdtmKCAPs.size()) {
                     tdtmKCAPs.set(index, newTDTM);
@@ -865,13 +868,25 @@ public class ModelImporter extends PayloadPanel {
             }
         }
 
-        List<ResPayload> parentPayloads = parentKCAP.getEntries();
+        // Decide where to write TDTMs
+        boolean isDigiXX = rootKCAP.getName().startsWith("digi");
 
-        for (int i = 1; i < Math.min(15, parentPayloads.size()); i++) {
-            if (tdtmKCAPs.get(i-1) != null)
-                parentPayloads.set(i, tdtmKCAPs.get(i-1));
+        List<ResPayload> targetPayloads =
+            isDigiXX ? parentKCAP.getEntries()
+                     : rootKCAP.getEntries();
+
+        int startIndex = isDigiXX ? 1 : 0;
+
+        for (int i = 0; i < Math.min(14, tdtmKCAPs.size()); i++) {
+            if (tdtmKCAPs.get(i) != null) {
+                int targetIndex = startIndex + i;
+                if (targetIndex < targetPayloads.size()) {
+                    targetPayloads.set(targetIndex, tdtmKCAPs.get(i));
+                }
+            }
         }
     }
+
 
     private float calculateModelScale() {
         if (jointNodes.isEmpty())
@@ -1155,7 +1170,6 @@ public class ModelImporter extends PayloadPanel {
         }
 
         rootKCAP = (HSMPKCAP) file;
-
         tdtmKCAPs = new ArrayList<TDTMKCAP>();
 
         List<ResPayload> otherPayloads = rootKCAP.getParent().getEntries();

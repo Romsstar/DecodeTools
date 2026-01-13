@@ -38,18 +38,17 @@ public class XTVPKCAP extends AbstractKCAP {
         
         List<KCAPPointer> pointer = loadKCAPPointer(source, info.entries);
         
-        for (KCAPPointer p : pointer) {
-            if (p.getOffset() == 0 && p.getSize() == 0)
-                throw new IllegalArgumentException("Got a Void pointer, but only XTVO entries are allowed.");
-            
+        for (int i = 0; i < pointer.size(); i++) {
+            KCAPPointer p = pointer.get(i);
+
             source.setPosition(info.startAddress + p.getOffset());
-            ResPayload payload = ResPayload.craft(source, dataStart, this, p.getSize(), null);
-            
-            if (payload.getType() != Payload.XTVO)
-                throw new IllegalArgumentException("Got a " + payload.getType() + " entry, but only XTVO entries are allowed.");
-            
-            entries.add((XTVOPayload) payload);
+            XTVOPayload xtvo = (XTVOPayload)
+                ResPayload.craft(source, dataStart, this, p.getSize(), null);
+
+            xtvo.setDrawIndex(i);  
+            entries.add(xtvo);
         }
+
         
         // make sure we're at the end of the KCAP
         long expectedEnd = info.startAddress + info.size;
@@ -76,6 +75,7 @@ public class XTVPKCAP extends AbstractKCAP {
         return entries.size();
     }
     
+        
     @Override
     public KCAPType getKCAPType() {
         return KCAPType.XTVP;

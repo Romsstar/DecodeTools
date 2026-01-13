@@ -11,7 +11,9 @@ import net.digimonworld.decodetools.res.ResData;
 import net.digimonworld.decodetools.res.ResPayload;
 import net.digimonworld.decodetools.res.kcap.AbstractKCAP;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMEntry;
-
+import net.digimonworld.decodetools.res.payload.hsem.HSEMDrawEntry;
+import net.digimonworld.decodetools.res.kcap.XTVPKCAP;
+import net.digimonworld.decodetools.res.payload.XTVOPayload;
 /*-
  * HSEM "head" (0x40 byte)
  *  ID (4 byte)
@@ -86,8 +88,19 @@ public class HSEMPayload extends ResPayload {
         this.unknown4 = source.readInteger();
         this.unknown5 = source.readInteger();
 
-        for (int i = 0; i < numEntries; i++)
-            entries.add(HSEMEntry.loadEntry(source));
+        int drawIndex = 0;
+
+        for (int i = 0; i < numEntries; i++) {
+            HSEMEntry entry = HSEMEntry.loadEntry(source);
+
+            if (entry instanceof HSEMDrawEntry draw) {
+                draw.setDrawIndex(drawIndex);
+                drawIndex++;
+            }
+
+            entries.add(entry);
+        }
+
 
         if (source.getPosition() - start != size)
             Main.LOGGER.warning("HSEM Payload was smaller than advertised.");
@@ -153,4 +166,7 @@ public class HSEMPayload extends ResPayload {
     public int getUnknown5() {
         return unknown5;
     }
+    
+
+
 }

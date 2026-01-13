@@ -4,7 +4,12 @@ import javax.swing.GroupLayout;
 import javax.swing.GroupLayout.Alignment;
 
 import net.digimonworld.decodetools.Main;
+import net.digimonworld.decodetools.res.ResPayload;
+import net.digimonworld.decodetools.res.kcap.AbstractKCAP;
+import net.digimonworld.decodetools.res.kcap.XTVPKCAP;
 import net.digimonworld.decodetools.res.payload.HSEMPayload;
+import net.digimonworld.decodetools.res.payload.XTVOPayload;
+import net.digimonworld.decodetools.res.payload.hsem.HSEMDrawEntry;
 import net.digimonworld.decodetools.res.payload.hsem.HSEMEntry;
 
 import javax.swing.JList;
@@ -56,7 +61,7 @@ public class HSEMPanel extends PayloadPanel {
         // ---------- Horizontal ----------
         layout.setHorizontalGroup(
             layout.createSequentialGroup()
-                .addComponent(scrollPane, 200, 200, 200)
+            .addComponent(scrollPane, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE, GroupLayout.PREFERRED_SIZE)
                 .addGroup(layout.createParallelGroup(Alignment.LEADING)
 
                     .addGroup(layout.createSequentialGroup()
@@ -83,17 +88,20 @@ public class HSEMPanel extends PayloadPanel {
                         .addComponent(lblUnk_5)
                         .addComponent(unk5label))
 
-                    .addComponent(textPane)
+                    .addComponent(textPane,
+                    	    GroupLayout.PREFERRED_SIZE,
+                    	    GroupLayout.PREFERRED_SIZE,
+                    	    GroupLayout.PREFERRED_SIZE)
                 )
         );
 
         // ---------- Vertical ----------
         layout.setVerticalGroup(
             layout.createParallelGroup(Alignment.LEADING)
-            .addComponent(scrollPane, GroupLayout.PREFERRED_SIZE,
+            .addComponent(scrollPane,
                     GroupLayout.DEFAULT_SIZE,
-                    GroupLayout.PREFERRED_SIZE)
-
+                    GroupLayout.DEFAULT_SIZE,
+                    Short.MAX_VALUE)
 
                 .addGroup(layout.createSequentialGroup()
 
@@ -122,7 +130,10 @@ public class HSEMPanel extends PayloadPanel {
                         .addComponent(unk5label))
 
                     .addPreferredGap(ComponentPlacement.UNRELATED)
-                    .addComponent(textPane)
+                    .addComponent(textPane,
+                    	    GroupLayout.PREFERRED_SIZE,
+                    	    GroupLayout.PREFERRED_SIZE,
+                    	    GroupLayout.PREFERRED_SIZE)
                 )
         );
 
@@ -144,6 +155,7 @@ public class HSEMPanel extends PayloadPanel {
         }
 
         selected = (HSEMPayload) file;
+        linkXTVOOffsets(selected);
         scrollPane.setViewportView(list);
         list.setListData(selected.getEntries().toArray(new HSEMEntry[0]));
 
@@ -163,4 +175,44 @@ public class HSEMPanel extends PayloadPanel {
     public HSEMPayload getSelectedFile() {
         return selected;
     }
+    private void linkXTVOOffsets(HSEMPayload hsem) {
+
+        // 1) Go to the owning KCAP (HSEMKCAP)
+        AbstractKCAP hsemKcap = hsem.getParent();
+        if (hsemKcap == null)
+            return;
+
+        // 2) Go to the container KCAP (HSMP / NormalKCAP)
+        AbstractKCAP container = hsemKcap.getParent();
+        if (container == null)
+            return;
+
+        // 3) Find XTVPKCAP among sibling entries
+        XTVPKCAP xtvp = null;
+        for (ResPayload entry : container.getEntries()) {
+            if (entry instanceof XTVPKCAP) {
+                xtvp = (XTVPKCAP) entry;
+                break;
+            }
+        }
+
+        if (xtvp == null) {
+            Main.LOGGER.warning("XTVPKCAP not found for HSEM");
+            return;
+        }
+
+        // 4) Link XTVO offsets using drawIndex
+        for (HSEMEntry e : hsem.getEntries()) {
+            if (e instanceof HSEMDrawEntry draw) {
+                int idx = draw.getDrawIndex();
+                if (idx >= 0 && idx < xtvp.getEntryCount()) {
+                    XTVOPayload xtvo = xtvp.get(idx);
+                    draw.setXtvoOffset(xtvo.getXtvoDataOffset());
+                }
+            }
+        }
+    }
+
+
+
 }

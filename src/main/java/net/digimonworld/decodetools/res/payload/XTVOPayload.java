@@ -35,6 +35,7 @@ public class XTVOPayload extends ResPayload {
     private int shaderId;
     private int unknown9; // 0x73?
     private int unknown10; // always 1?
+    private int drawIndex = -1;
     // int shaderVariablesSize
     
     // short attributeCount
@@ -249,6 +250,18 @@ public class XTVOPayload extends ResPayload {
     
     public void setMTex3(float[] mTex3) {
         this.mTex3 = mTex3;
+    }
+
+    public void setDrawIndex(int drawIndex) {
+        this.drawIndex = drawIndex;
+    }
+
+    public int getDrawIndex() {
+        return drawIndex;
+    }
+
+    public long getXtvoDataOffset() {
+        return dataStartOnLoad;
     }
 
     @Override
