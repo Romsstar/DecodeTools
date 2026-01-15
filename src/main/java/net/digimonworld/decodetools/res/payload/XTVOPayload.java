@@ -33,7 +33,7 @@ public class XTVOPayload extends ResPayload {
     private int unknown7; // 0x00010309?
     
     private int shaderId;
-    private int unknown9; // 0x73?
+    private int unknown9; // 0x73? -->Can differ. To investigate
     private int unknown10; // always 1?
     private int drawIndex = -1;
     // int shaderVariablesSize

@@ -553,6 +553,20 @@ public class ModelImporter extends PayloadPanel {
 	    return result;
 	}
 
+   private static int parseMeshNumber(String name) {
+	    if (name == null)
+	        return Integer.MAX_VALUE;
+
+	    int underscore = name.lastIndexOf('_');
+	    if (underscore == -1)
+	        return Integer.MAX_VALUE;
+
+	    try {
+	        return Integer.parseInt(name.substring(underscore + 1));
+	    } catch (NumberFormatException e) {
+	        return Integer.MAX_VALUE;
+	    }
+	}
 
     @SuppressWarnings("resource")
     public void loadModel() {
@@ -567,19 +581,31 @@ public class ModelImporter extends PayloadPanel {
         Map<Integer, Map<Short, Short>> prevBoneMappingById = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk1 = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk2 = new HashMap<>();
-    
+      
+        List<Integer> meshOrder = new ArrayList<>();
         for (int i = 0; i < scene.mNumMeshes(); i++) {
-               
-           AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
-           int id = getMeshExtra(importedGltfModel, i, "id", Integer.class)
+            meshOrder.add(i);
+        }
+
+        meshOrder.sort(
+            Comparator.<Integer>comparingInt(i -> {
+                AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
+                return parseMeshNumber(mesh.mName().dataString());
+            }).thenComparingInt(i -> i) // stable fallback
+        );
+        int i = 0;
+        for (int y : meshOrder) {
+        
+           AIMesh mesh = AIMesh.create(scene.mMeshes().get(y));
+           int id = getMeshExtra(importedGltfModel, y, "id", Integer.class)
                    .orElse(-1); 
            
-           meshesById.computeIfAbsent(id, k -> new ArrayList<>()).add(i);
-           final int meshIndex = i; 
+           meshesById.computeIfAbsent(id, k -> new ArrayList<>()).add(y);
+           final int meshIndex = y; 
            List<HSEMEntry> hsemEntries =
         	        hsemById.computeIfAbsent(id, k -> new ArrayList<>());
            int shader =
-        		    getMeshExtra(importedGltfModel, i, "shader", Integer.class)
+        		    getMeshExtra(importedGltfModel, y, "shader", Integer.class)
         		        .orElse(0);
 
            headerById.computeIfAbsent(id, k ->
@@ -617,10 +643,10 @@ public class ModelImporter extends PayloadPanel {
         }
                
         	Optional<Short> materialIdOpt =
-        		    getMeshExtra(importedGltfModel, i, "materialId", Short.class);
+        		    getMeshExtra(importedGltfModel, y, "materialId", Short.class);
 
         		Optional<Short> texIdOpt =
-        		    getMeshExtra(importedGltfModel, i, "texId", Short.class);
+        		    getMeshExtra(importedGltfModel, y, "texId", Short.class);
 
         		if (materialIdOpt.isPresent()) {
         		    short materialId = materialIdOpt.get();
@@ -640,7 +666,7 @@ public class ModelImporter extends PayloadPanel {
 
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
-            boolean hasNormal =getMeshExtra(importedGltfModel, i, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
+            boolean hasNormal =getMeshExtra(importedGltfModel, y, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
           	AIVector3D.Buffer mNormals = (hasNormal ? mesh.mNormals() : null);
             AIVector3D.Buffer tex0Buff = mesh.mTextureCoords(0);
             AIVector3D.Buffer tex1Buff = mesh.mTextureCoords(1);
@@ -762,19 +788,19 @@ public class ModelImporter extends PayloadPanel {
             	prev.putAll(boneMapping);
             
             short culling =
-            	    getMeshExtra(importedGltfModel, i, "hsem_culling", Short.class)
+            	    getMeshExtra(importedGltfModel, y, "hsem_culling", Short.class)
             	        .orElse((short) 0x000F); // vanilla default
 
             	byte transparency =
-            	    getMeshExtra(importedGltfModel, i, "hsem_transparency", Byte.class)
+            	    getMeshExtra(importedGltfModel, y, "hsem_transparency", Byte.class)
             	        .orElse(blendFlag); // fallback to material-derived
 
             	byte mask =
-            	    getMeshExtra(importedGltfModel, i, "hsem_mask", Byte.class)
+            	    getMeshExtra(importedGltfModel, y, "hsem_mask", Byte.class)
             	        .orElse(maskFlag);
 
                    	short unk4 =
-            	    getMeshExtra(importedGltfModel, i, "hsem_unk4", Short.class)
+            	    getMeshExtra(importedGltfModel, y, "hsem_unk4", Short.class)
             	        .orElse((short) 0);
 
             	
@@ -801,7 +827,7 @@ public class ModelImporter extends PayloadPanel {
            xdioPayload.add(new XDIOPayload(null, faces, (short) 0x3001, (short) 0, 5));
 
            hsemEntries.add(new HSEMDrawEntry((short) 4, (short) i, (short) i, (short) 0, 0, faces.size() * 3));
-               
+           i++;
        }
    
 
@@ -897,6 +923,22 @@ public class ModelImporter extends PayloadPanel {
                     targetPayloads.set(targetIndex, tdtmKCAPs.get(i));
                 }
             }
+        }
+    }
+    private static int getGeomOrder(AIMesh mesh) {
+        String name = mesh.mName().dataString();
+        if (name == null)
+            return Integer.MAX_VALUE;
+
+        // Expected format: geom-X
+        int dash = name.lastIndexOf('-');
+        if (dash == -1)
+            return Integer.MAX_VALUE;
+
+        try {
+            return Integer.parseInt(name.substring(dash + 1));
+        } catch (NumberFormatException e) {
+            return Integer.MAX_VALUE;
         }
     }
 

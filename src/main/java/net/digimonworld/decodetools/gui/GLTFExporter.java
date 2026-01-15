@@ -411,8 +411,11 @@ public class GLTFExporter {
             int colorBuffer = vertexAttribToBuffer(xtvo.getVertices(),XTVORegisterType.COLOR);
             int colorBufferView = createBufferView(colorBuffer,GL_ARRAY_BUFFER,"colorBufferView");
             XTVOAttribute c = xtvo.getAttribute(XTVORegisterType.COLOR).get();
+            
             int colorAccessor = createAccessorFromXTVO(colorBufferView,c,vertexCount,"COLOR");
             primitive.addAttributes("COLOR_0", colorAccessor);
+            
+            
         }
 
         // =======================
@@ -633,7 +636,17 @@ public class GLTFExporter {
     // =========================
     // Accessor and View builder
     // =========================
+    static final class BuiltBuffer {
+        final int bufferIndex;      // glTF buffer id
+        final byte[] raw;           // raw bytes you wrote
 
+        BuiltBuffer(int bufferIndex, byte[] raw) {
+            this.bufferIndex = bufferIndex;
+            this.raw = raw;
+        }
+    }
+
+    
     private int createPosAccessor(int bufferView, List<XTVOVertex> vertices, XTVOAttribute attr, String name) {
         Number[] minValues = new Number[] { Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY };
         Number[] maxValues = new Number[] { Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY };
@@ -766,9 +779,7 @@ public class GLTFExporter {
     }
 
     private int vertexAttribToBuffer(
-            List<XTVOVertex> vertices,
-            XTVORegisterType type
-    ) {
+            List<XTVOVertex> vertices, XTVORegisterType type    ) {
         Entry<XTVOAttribute, List<Number>> first =
                 vertices.get(0).getParameter(type);
 
@@ -801,8 +812,10 @@ public class GLTFExporter {
                         buffer.putFloat(attr.getValue(n));
                         break;
 
-                    case BYTE:
                     case UBYTE:
+                        buffer.put((byte) (n.intValue() & 0xFF));
+                        break;
+                    case BYTE:
                         buffer.put(n.byteValue());
                         break;
 
@@ -820,11 +833,10 @@ public class GLTFExporter {
 
         return instance.getBuffers().size() - 1;
     }
-
+    
     private int createAccessorFromXTVO(int bufferView,XTVOAttribute attr,int vertexCount,String name) 
     {
-    	
-        Accessor accessor = new Accessor();
+    	Accessor accessor = new Accessor();
         accessor.setBufferView(bufferView);
         accessor.setCount(vertexCount);
         accessor.setName(name);
@@ -850,7 +862,6 @@ public class GLTFExporter {
             case 4 -> accessor.setType("VEC4");
             default -> throw new IllegalStateException("Unsupported component count");
         }
-
         instance.addAccessors(accessor);
         return instance.getAccessors().size() - 1;
     }
