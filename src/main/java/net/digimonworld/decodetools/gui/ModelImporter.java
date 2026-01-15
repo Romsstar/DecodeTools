@@ -466,7 +466,7 @@ public class ModelImporter extends PayloadPanel {
                         AIVertexWeight weight = weights.get(k);
                         int vertexId = weight.mVertexId();
                         float val = weight.mWeight() * 255;
-
+   
                         vertices.get(vertexId).computeIfAbsent(idxAttrib, a -> new ArrayList<Number>()).add(j * 3);
                         vertices.get(vertexId).computeIfAbsent(wgtAttrib, a -> new ArrayList<Number>()).add(val);
                     }
@@ -552,7 +552,8 @@ public class ModelImporter extends PayloadPanel {
 	    }
 	    return result;
 	}
-   
+
+
     @SuppressWarnings("resource")
     public void loadModel() {
         List<XDIOPayload> xdioPayload = new ArrayList<>();
@@ -615,25 +616,28 @@ public class ModelImporter extends PayloadPanel {
                 break;
         }
                
-        	short materialId =
-        		    getMeshExtra(importedGltfModel, i, "materialId", Short.class)
-        		        .orElse((short)0);
+        	Optional<Short> materialIdOpt =
+        		    getMeshExtra(importedGltfModel, i, "materialId", Short.class);
 
-        		Short lastMat = lastMaterialById.get(id);
-        		if (lastMat == null || lastMat != materialId) {
-        		    hsemEntries.add(new HSEMMaterialEntry((short)0, materialId));
-        		    lastMaterialById.put(id, materialId);
+        		Optional<Short> texIdOpt =
+        		    getMeshExtra(importedGltfModel, i, "texId", Short.class);
+
+        		if (materialIdOpt.isPresent()) {
+        		    short materialId = materialIdOpt.get();
+
+        		    Short lastMat = lastMaterialById.get(id);
+        		    if (!Objects.equals(lastMat, materialId)) {
+        		        hsemEntries.add(new HSEMMaterialEntry((short) 0, materialId));
+        		        lastMaterialById.put(id, materialId);
+        		    }
+
+        		    texIdOpt.ifPresent(texId -> {
+        		        Map<Short, Short> texMap = new HashMap<>();
+        		        texMap.put((short) 0, texId);
+        		        hsemEntries.add(new HSEMTextureEntry(texMap));
+        		    });
         		}
-       		    			
-        		Short texId =
-        			    getMeshExtra(importedGltfModel, i, "texId", Short.class)
-        			        .orElse((short) 0);   // default to -1 instead of null
 
-        			if (materialId != 0) {
-        			    Map<Short, Short> texMap = new HashMap<>();
-        			    texMap.put((short) 0, texId); // allow -1 through
-        			    hsemEntries.add(new HSEMTextureEntry(texMap));
-        			}
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
             boolean hasNormal =getMeshExtra(importedGltfModel, i, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
@@ -664,9 +668,18 @@ public class ModelImporter extends PayloadPanel {
                                                            XTVOValueType.BYTE, 1.0f / 127f);
             offsetCounter += mNormals != null ? 3 : 0;
 
-            XTVOAttribute colorAttrib = new XTVOAttribute(XTVORegisterType.COLOR, offsetCounter, (byte) 4,
-                                                          XTVOValueType.UBYTE, 1.0f/255f);
-            offsetCounter += 4;
+            XTVOAttribute colorAttrib = null;
+            if (mColor != null) {
+                colorAttrib = new XTVOAttribute(
+                    XTVORegisterType.COLOR,
+                    offsetCounter,
+                    (byte) 4,
+                    XTVOValueType.UBYTE,
+                    1.0f / 255f
+                );
+                offsetCounter += 4;
+            }
+
 
             XTVOAttribute idxAttrib = new XTVOAttribute(XTVORegisterType.IDX, offsetCounter, (byte) 4,
                                                         XTVOValueType.UBYTE, 1.0f / 255f);
@@ -686,7 +699,7 @@ public class ModelImporter extends PayloadPanel {
             List<XTVOAttribute> attribList = new ArrayList<>();
             attribList.add(vertexAttrib);
             attribList.add(mNormals != null ? normalAttrib : null);
-            attribList.add(mColor != null ? colorAttrib : null);
+            attribList.add(colorAttrib);
             attribList.add(mesh.mNumBones() != 0 ? idxAttrib : null);
             attribList.add(mesh.mNumBones() != 0 ? wgtAttrib : null);
             attribList.add(tex0Buff != null ? tex0Attrib : null);
@@ -707,19 +720,19 @@ public class ModelImporter extends PayloadPanel {
                     AIVector3D normal = mNormals.get(j);
                     vertex.put(normalAttrib, List.of(normal.x() * 127.0f, normal.y() * 127.0f, normal.z() * 127.0f));
                 }
-                
-                //Colors                
+                       
+             // Colors
                 if (mColor != null) {
-                    AIColor4D color = mColor.get(j);     
-                 vertex.put(colorAttrib, List.of(
-                     color.r()*255.0f,  
-                     color.g()*255.0f,  
-                     color.b()*255.0f,
-                     color.a() *255.0f     
-                 ));
+                    AIColor4D color = mColor.get(j);
 
+                             vertex.put(colorAttrib, List.of(
+                    		color.r()* 255.0f,
+                    		color.g() * 255.0f,
+                    		color.b()* 255.0f,
+                        color.a() * 255.0f
+                    ));
+                }
 
-                       }
                 if (tex0Buff != null) {
                     AIVector3D tex0 = tex0Buff.get(j);
                     vertex.put(tex0Attrib, List.of(tex0.x(), tex0.y()));
@@ -943,13 +956,6 @@ public class ModelImporter extends PayloadPanel {
         return scales;
     }
 
-    private float srgbToLinear(float c) {
-        if (c <= 0.04045f) {
-            return c / 12.92f;
-        } else {
-            return (float) Math.pow((c + 0.055f) / 1.055f, 2.4f);
-        }
-    }
     
     @SuppressWarnings("resource")
     private static boolean isJointNode(AINode node) {
