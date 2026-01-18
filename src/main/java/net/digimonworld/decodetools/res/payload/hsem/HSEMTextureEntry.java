@@ -7,7 +7,7 @@ import net.digimonworld.decodetools.core.Access;
 
 public class HSEMTextureEntry implements HSEMEntry {
     private short unkn1; // always 0?
-    // short textureCount
+    private short textureCount;
     
     private Map<Short, Short> textureAssignment = new HashMap<>();
     
@@ -17,7 +17,7 @@ public class HSEMTextureEntry implements HSEMEntry {
     
     public HSEMTextureEntry(Access source) {
         unkn1 = source.readShort();
-        short textureCount = source.readShort();
+        textureCount = source.readShort();
         
         for (int i = 0; i < textureCount; ++i)
             textureAssignment.put(source.readShort(), source.readShort());
@@ -51,6 +51,12 @@ public class HSEMTextureEntry implements HSEMEntry {
     public String toString() {
         StringBuilder builder = new StringBuilder("Texture | U1: ");
         builder.append(unkn1);
+       
+
+        builder.append("|");
+        builder.append("Texture Count: ");
+        builder.append(textureCount);
+        builder.append(" ");
         
         textureAssignment.forEach((k, v) -> {
             builder.append(" | ");

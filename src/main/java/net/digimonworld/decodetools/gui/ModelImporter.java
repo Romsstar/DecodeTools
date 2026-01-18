@@ -31,6 +31,7 @@ import javax.swing.AbstractListModel;
 import javax.swing.GroupLayout;
 import javax.swing.GroupLayout.Alignment;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -117,8 +118,7 @@ public class ModelImporter extends PayloadPanel {
     private static final String[] JOINT_PREFIXES = { "J_", "AT_", };
 
     private static final int IMPORT_FLAGS = Assimp.aiProcess_Triangulate | Assimp.aiProcess_LimitBoneWeights
-                                            | Assimp.aiProcess_SplitByBoneCount | Assimp.aiProcess_JoinIdenticalVertices
-                                            | Assimp.aiProcess_OptimizeMeshes;
+                                            | Assimp.aiProcess_SplitByBoneCount | Assimp.aiProcess_JoinIdenticalVertices;
 
     private static final AIPropertyStore importProperties = Assimp.aiCreatePropertyStore();
     static {
@@ -152,6 +152,7 @@ public class ModelImporter extends PayloadPanel {
     private final JButton btnNewButton = new JButton("Joints to OBJ");
     private final JButton btnExportDAE = new JButton("Export to DAE");
     private final JButton btnExportglTF = new JButton("Export to glTF");
+    private final JCheckBox chkGltfAnimations = new JCheckBox("Include animations", true);
 
     // generated
 
@@ -183,7 +184,8 @@ public class ModelImporter extends PayloadPanel {
 
             if (fileDialogue.getSelectedFile() == null)
                 return;
-            saveGLTF(fileDialogue.getSelectedFile());
+            saveGLTF(fileDialogue.getSelectedFile(), chkGltfAnimations.isSelected());
+
 
         });
 
@@ -370,12 +372,15 @@ public class ModelImporter extends PayloadPanel {
                                                                                                                           53,
                                                                                                                           GroupLayout.PREFERRED_SIZE))
                                                                                         .addGroup(gl_panel_1.createSequentialGroup()
-                                                                                                            .addContainerGap()
-                                                                                                            .addComponent(btnNewButton)
-                                                                                                            .addPreferredGap(ComponentPlacement.RELATED)
-                                                                                                            .addComponent(btnExportDAE)
-                                                                                                            .addPreferredGap(ComponentPlacement.RELATED)
-                                                                                                            .addComponent(btnExportglTF)))
+                                                                                        	    .addContainerGap()
+                                                                                        	    .addComponent(btnNewButton)
+                                                                                        	    .addPreferredGap(ComponentPlacement.RELATED)
+                                                                                        	    .addComponent(btnExportDAE)
+                                                                                        	    .addPreferredGap(ComponentPlacement.RELATED)
+                                                                                        	    .addComponent(btnExportglTF)
+                                                                                        	    .addPreferredGap(ComponentPlacement.RELATED)
+                                                                                        	    .addComponent(chkGltfAnimations))
+)
 
                                                                     .addContainerGap(26, Short.MAX_VALUE)));
         gl_panel_1.setVerticalGroup(gl_panel_1.createParallelGroup(Alignment.LEADING)
@@ -394,9 +399,10 @@ public class ModelImporter extends PayloadPanel {
                                                                   .addPreferredGap(ComponentPlacement.RELATED, 190,
                                                                                    Short.MAX_VALUE)
                                                                   .addGroup(gl_panel_1.createParallelGroup(Alignment.BASELINE)
-                                                                                      .addComponent(btnNewButton)
-                                                                                      .addComponent(btnExportDAE)
-                                                                                      .addComponent(btnExportglTF))
+                                                                		    .addComponent(btnNewButton)
+                                                                		    .addComponent(btnExportDAE)
+                                                                		    .addComponent(btnExportglTF)
+                                                                		    .addComponent(chkGltfAnimations))
                                                                   .addContainerGap()));
         panel_1.setLayout(gl_panel_1);
         scrollPane.setViewportView(list);
@@ -419,9 +425,10 @@ public class ModelImporter extends PayloadPanel {
         }
     }
 
-    public void saveGLTF(File output) {
-        new GLTFExporter(rootKCAP).export(output);
+    public void saveGLTF(File output, boolean includeAnimations) {
+        new GLTFExporter(rootKCAP, includeAnimations).export(output);
     }
+
 
     public int countUniqueHSEMIds(Map<Integer, Short> hsemPairs) {
         Set<Short> uniqueIds = new HashSet<>();
@@ -581,7 +588,8 @@ public class ModelImporter extends PayloadPanel {
         Map<Integer, Map<Short, Short>> prevBoneMappingById = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk1 = new HashMap<>();
         Map<Integer, Integer> HSEMPayload_unk2 = new HashMap<>();
-      
+        Map<Integer, Integer> HSEMPayload_unk4 = new HashMap<>();
+        
         List<Integer> meshOrder = new ArrayList<>();
         for (int i = 0; i < scene.mNumMeshes(); i++) {
             meshOrder.add(i);
@@ -606,7 +614,7 @@ public class ModelImporter extends PayloadPanel {
         	        hsemById.computeIfAbsent(id, k -> new ArrayList<>());
            int shader =
         		    getMeshExtra(importedGltfModel, y, "shader", Integer.class)
-        		        .orElse(0);
+        		        .orElse(8);
 
            headerById.computeIfAbsent(id, k ->
            getMeshExtra(importedGltfModel, meshIndex, "headerData", String.class)
@@ -622,7 +630,10 @@ public class ModelImporter extends PayloadPanel {
            getMeshExtra(importedGltfModel, meshIndex, "unk2", Integer.class)
                .orElse(0) // vanilla default
        );
-
+           HSEMPayload_unk4.computeIfAbsent(id, k ->
+           getMeshExtra(importedGltfModel, meshIndex, "unk4", Integer.class)
+               .orElse(0) // vanilla default
+       );
            
            //get Material Properties
            int materialIndex = mesh.mMaterialIndex();
@@ -645,8 +656,7 @@ public class ModelImporter extends PayloadPanel {
         	Optional<Short> materialIdOpt =
         		    getMeshExtra(importedGltfModel, y, "materialId", Short.class);
 
-        		Optional<Short> texIdOpt =
-        		    getMeshExtra(importedGltfModel, y, "texId", Short.class);
+        	Map<Short, Short> texSlots = readTexSlotsFromExtras(importedGltfModel, y);
 
         		if (materialIdOpt.isPresent()) {
         		    short materialId = materialIdOpt.get();
@@ -657,12 +667,9 @@ public class ModelImporter extends PayloadPanel {
         		        lastMaterialById.put(id, materialId);
         		    }
 
-        		    texIdOpt.ifPresent(texId -> {
-        		        Map<Short, Short> texMap = new HashMap<>();
-        		        texMap.put((short) 0, texId);
-        		        hsemEntries.add(new HSEMTextureEntry(texMap));
-        		    });
-        		}
+        		    if (!texSlots.isEmpty()) {
+        		        hsemEntries.add(new HSEMTextureEntry(texSlots));
+        		}}
 
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
@@ -838,6 +845,7 @@ public class ModelImporter extends PayloadPanel {
             float[] headerArray =        	    headerById.getOrDefault(id,        	        rootKCAP.getHSEM().get(0).getHeaderData());
             int unk1= HSEMPayload_unk1.getOrDefault(id, 0);
             int unk2 = HSEMPayload_unk2.getOrDefault(id, 0);
+            int unk4 = HSEMPayload_unk4.getOrDefault(id, 0);
             
                 HSEMPayload payload = new HSEMPayload(
                 null,
@@ -847,7 +855,7 @@ public class ModelImporter extends PayloadPanel {
                 (byte) unk2, //unk2
                 (byte) 0, //unk3
                 headerArray,
-                -1,//unk4
+                unk4,//unk4
                 0 //unk5
             );
 
@@ -870,6 +878,53 @@ public class ModelImporter extends PayloadPanel {
             rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
             loadAnimations();
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<Short, Short> readTexSlotsFromExtras(GltfModel model, int meshIndex) {
+        if (meshIndex < 0 || meshIndex >= model.getMeshModels().size())
+            return Map.of();
+
+        Object extrasObj = model.getMeshModels().get(meshIndex).getExtras();
+        if (!(extrasObj instanceof Map))
+            return Map.of();
+
+        Map<String, Object> extras = (Map<String, Object>) extrasObj;
+
+        Map<Short, Short> texMap = new HashMap<>();
+
+        for (Map.Entry<String, Object> e : extras.entrySet()) {
+            String key = e.getKey();
+            if (!key.startsWith("texSlot_"))
+                continue;
+
+            // parse slot key suffix
+            short slot;
+            try {
+                slot = Short.parseShort(key.substring("texSlot_".length()));
+            } catch (NumberFormatException ex) {
+                continue;
+            }
+
+            Object v = e.getValue();
+            short texId;
+
+            if (v instanceof Number) {
+                texId = ((Number) v).shortValue();
+            } else if (v instanceof String) {
+                try {
+                    texId = Short.parseShort((String) v);
+                } catch (NumberFormatException ex) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            texMap.put(slot, texId);
+        }
+
+        return texMap;
     }
 
     public void loadAnimations() {

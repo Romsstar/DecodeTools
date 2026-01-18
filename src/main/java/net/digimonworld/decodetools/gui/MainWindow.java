@@ -391,7 +391,7 @@ public class MainWindow extends JFrame implements Observer {
                                         .map(kcap -> (HSMPKCAP) kcap)
                                         .forEach(hsmp -> {
                                             try {
-                                                GLTFExporter exporter = new GLTFExporter(hsmp);
+                                                GLTFExporter exporter = new GLTFExporter(hsmp,  enabled);
                                                 exporter.export(outputFolder);
                                                 Main.LOGGER.info(() -> "Exported: " + file);
                                             } catch (Exception ex) {

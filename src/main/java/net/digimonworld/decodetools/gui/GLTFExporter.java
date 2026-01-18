@@ -80,7 +80,7 @@ public class GLTFExporter {
 
     private final HSMPKCAP hsmp;
     private final GlTF instance;
-
+    private final boolean includeAnimations;
     private List<TDTMKCAP> tdtms;
 
     private Map<Short, Short> jointAssignment = new HashMap<>();
@@ -94,10 +94,12 @@ public class GLTFExporter {
     private int geomId = 0;
     private Node rootNode = new Node();
 
-    public GLTFExporter(HSMPKCAP hsmp) {
+    public GLTFExporter(HSMPKCAP hsmp, boolean includeAnimations) {
         this.hsmp = hsmp;
         this.tdtms = new ArrayList<>();
-
+        this.includeAnimations = includeAnimations;
+        
+        if (includeAnimations) {
         // Case 1: Map-style — TDTMs inside HSMP
         collectChildTDTMs(hsmp, tdtms);
 
@@ -114,10 +116,10 @@ public class GLTFExporter {
                 }
             }
         }
-
+        
         // Safety: avoid duplicates
         tdtms = tdtms.stream().distinct().toList();
-
+        }
         this.instance = new GlTF();
         initialize();
     }
@@ -161,8 +163,9 @@ public class GLTFExporter {
         createJoints();
         createLocations();
         createGeometry();
+        if (includeAnimations) {
         createAnimations();
-
+        }
         Scene scene = new Scene();
         rootNode.setName(hsmp.getName());
         instance.addNodes(rootNode);
@@ -518,16 +521,19 @@ public class GLTFExporter {
         }
 
         // Resolve texture (may be -1)
-        short texId = textureAssignment.getOrDefault((short)0, (short)-1);
-        extra.put("texId", Short.toString(texId));
+        short tex0 = textureAssignment.getOrDefault((short)0, (short)-1);
+         for (var e : textureAssignment.entrySet()) {
+            extra.put("texSlot_" + e.getKey(), Short.toString(e.getValue()));
+        }
+        extra.put("texSlotCount", Integer.toString(textureAssignment.size()));
 
         // Start from the base material
         Material baseMat = instance.getMaterials().get(baseMatIndex);
 
         // If there is a texture, link it
-        if (texId != -1) {
+        if (tex0 != -1) {
             TextureInfo baseColorTextureInfo = new TextureInfo();
-            baseColorTextureInfo.setIndex((int)texId);
+            baseColorTextureInfo.setIndex((int)tex0);
             if (baseMat.getPbrMetallicRoughness() == null) {
                 baseMat.setPbrMetallicRoughness(new MaterialPbrMetallicRoughness());
             }
