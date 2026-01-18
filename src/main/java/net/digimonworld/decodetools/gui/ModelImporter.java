@@ -852,7 +852,7 @@ public class ModelImporter extends PayloadPanel {
             );
 
             if (id == -1) {
-                defaultPayload = payload;   // stash for later
+                defaultPayload = payload;   
             } else {
                 orderedPayloads.add(payload);
             }
@@ -868,7 +868,7 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
             rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
-         //   loadAnimations();
+            loadAnimations();
         }
     }
 
@@ -878,7 +878,10 @@ public class ModelImporter extends PayloadPanel {
         for (int i = 0; i < scene.mNumAnimations(); i++) {
             AIAnimation animation = AIAnimation.create(scene.mAnimations().get(i));
 
+            //System.out.println(animation.mName().dataString());
+
             int index;
+
             switch(animation.mName().dataString()) {
                 case "idle": index = 0; break;
                 case "run": index = 1; break;
@@ -898,8 +901,7 @@ public class ModelImporter extends PayloadPanel {
             }
 
             if (index > -1 && index < 14) {
-                TDTMKCAP newTDTM =
-                    new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float) spinner.getValue());
+                TDTMKCAP newTDTM = new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float)spinner.getValue());
 
                 if (index < tdtmKCAPs.size()) {
                     tdtmKCAPs.set(index, newTDTM);
@@ -907,41 +909,14 @@ public class ModelImporter extends PayloadPanel {
             }
         }
 
-        // Decide where to write TDTMs
-        boolean isDigiXX = rootKCAP.getName().startsWith("digi");
+        List<ResPayload> parentPayloads = parentKCAP.getEntries();
 
-        List<ResPayload> targetPayloads =
-            isDigiXX ? parentKCAP.getEntries()
-                     : rootKCAP.getEntries();
-
-        int startIndex = isDigiXX ? 1 : 0;
-
-        for (int i = 0; i < Math.min(14, tdtmKCAPs.size()); i++) {
-            if (tdtmKCAPs.get(i) != null) {
-                int targetIndex = startIndex + i;
-                if (targetIndex < targetPayloads.size()) {
-                    targetPayloads.set(targetIndex, tdtmKCAPs.get(i));
-                }
-            }
+        for (int i = 1; i < 15; i++) {
+            if (tdtmKCAPs.get(i-1) != null)
+                parentPayloads.set(i, tdtmKCAPs.get(i-1));
         }
     }
-    private static int getGeomOrder(AIMesh mesh) {
-        String name = mesh.mName().dataString();
-        if (name == null)
-            return Integer.MAX_VALUE;
-
-        // Expected format: geom-X
-        int dash = name.lastIndexOf('-');
-        if (dash == -1)
-            return Integer.MAX_VALUE;
-
-        try {
-            return Integer.parseInt(name.substring(dash + 1));
-        } catch (NumberFormatException e) {
-            return Integer.MAX_VALUE;
-        }
-    }
-
+ 
 
     private float calculateModelScale() {
         if (jointNodes.isEmpty())

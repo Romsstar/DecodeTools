@@ -139,7 +139,7 @@ public class GLTFExporter {
     
     private static boolean isDigimonModel(HSMPKCAP hsmp) {
         return hsmp.getName() != null &&
-               hsmp.getName().toLowerCase().contains("digi");
+               hsmp.getName().toLowerCase().contains("chr");
     }
 
 
