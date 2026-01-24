@@ -129,13 +129,13 @@ public class VCRAFile {
             }
             
             for (VCRAEntry entry : listCopy) {
-                access.writeInteger(0x00000000);
+                access.writeInteger(0x0000000); //ARCV ID?
                 access.writeInteger(entry.getCompressedSize());
                 access.writeInteger(entry.getUnpackedSize());
                 access.writeInteger(pathStart);
                 access.writeInteger(entry.getSector());
                 access.writeInteger(map.containsKey(entry) ? map.get(entry) : 0);
-                access.writeInteger(0x00000000);
+                access.writeInteger(0x00000000);//Allow multiple Archives?
                 access.writeInteger(entry.isCompressed() ? 0x00000001 : 0x00000000);
                 access.writeString(entry.getPath() + (char) 0, "ASCII", pathStart);
                 pathStart += entry.getPath().length() + 1;

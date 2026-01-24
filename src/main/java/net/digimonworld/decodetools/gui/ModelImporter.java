@@ -1098,15 +1098,10 @@ public class ModelImporter extends PayloadPanel {
                 0.0f
             };
 
-            float[] rotationArray = {
-                rotation.x, rotation.y, rotation.z, rotation.w
-            };
-
+            float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
             float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
-            float[] localScaleVector = {
-                jointscale.x, jointscale.y, jointscale.z, 0.0f
-            };
-
+            float[] localScaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
+            
             Matrix4f inverseBind;
             Optional<AIBone> boneOpt = findBoneByName(scene, name);
 
