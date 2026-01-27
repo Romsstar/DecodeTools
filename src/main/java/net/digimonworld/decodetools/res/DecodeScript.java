@@ -1,11 +1,23 @@
 package net.digimonworld.decodetools.res;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import net.digimonworld.decodetools.core.Access;
 import net.digimonworld.decodetools.core.FileAccess;
@@ -14,63 +26,95 @@ import net.digimonworld.decodetools.core.Utils;
 import net.digimonworld.decodetools.res.kcap.AbstractKCAP;
 import net.digimonworld.decodetools.res.payload.GenericPayload;
 
-/*
- * Very rough script decoder. Not ready for production.
- */
 public class DecodeScript {
-    
-    /*
-     * END
-     * MOV <VALUE>
-     * FPADD <VALUE>
-     * LD.<TYPE> <ADDRESS>
-     * FPLD.<TYPE> <OFFSET>
-     * CVT.<TO>.<FROM>
-     * STR.<TYPE>
-     * MEMCOPY <COUNT>
-     * FILLZ <COUNT>
-     * ADD.<TYPE>
-     * SUB.<TYPE>
-     * MUL.<TYPE>
-     * DIV.<TYPE>
-     * UMOD
-     * MOD
-     * LSR
-     * ASR
-     * LSL
-     * AND
-     * XOR
-     * OR
-     * NEG.<TYPE>
-     * NOT
-     * UNK53
-     * PADD.<TYPE> <VALUE>
-     * LPADD.<TYPE> <VALUE>
-     * EQ.<TYPE>
-     * NE.<TYPE>
-     * GT.<TYPE>
-     * GTE.<TYPE>
-     * LT.<TYPE>
-     * LTE.<TYPE>
-     * EQZ
-     * J <OFFSET>
-     * JZ <OFFSET
-     * JNZ <OFFSET>
-     * CALL <ADDRESS>
-     * SWITCH <VALUE>
-     * RET
-     * NATIVECALL <ADDRESS>
-     * ENDNZ
-     * ALLOC <SIZE>
-     * PUSHW
-     * PUSHL
-     * PUSH <COUNT>
-     * POPW
-     * POPL
-     * POP <COUNT>
-     * ADVANCE <VALUE>
-     */
-    
+        
+	static final Map<Integer, String> nativeNames = new HashMap<>();
+	static {
+	    nativeNames.put(0x1F48F8, "Script::hasMedalSeen");
+	    nativeNames.put(0x1F5378, "Script::getKCAPEntry");
+	    nativeNames.put(0x1F50B4, "Script::isTriggerSet");
+	    nativeNames.put(0x309D14, "Script::getCurrentBagCapacity");
+	    nativeNames.put(0x309CA8, "Script::getBagItem");
+	    nativeNames.put(0x1F7B8C, "Script::getFishBait");
+	    nativeNames.put(0x2c88a0,"Script::playMusic");
+	    nativeNames.put(0x213318, "Script::degreeToRadians");
+	    nativeNames.put(0x308CA0, "Script::getItemCountOfType");
+	    nativeNames.put(0x2C9B14, "Script::countStorageItemOfType");
+	    nativeNames.put(0x1f54b4, "Script::getButtonMask");
+	    nativeNames.put(0x1F84B4, "Script::addOrTakeItems");
+	    nativeNames.put(0x1f4970, "Script::getMapKCAPEntry");
+	    nativeNames.put(0x310d90, "Script::addTiredness");
+	    nativeNames.put(0x1f3fb0, "Script::healSicknessOrInjury");
+	    nativeNames.put(0x1f585c, "Script::SetProgressValue");
+	    nativeNames.put(0x1f5788, "Script::setMailCleared");
+	}
+
+	static final class NativeSignature {
+	    final String name;
+	    final Map<Integer, Map<Integer, String>> argEnums;
+
+	    NativeSignature(String name) {
+	        this.name = name;
+	        this.argEnums = new HashMap<>();
+	    }
+
+	    NativeSignature enumArg(int index, Map<Integer, String> values) {
+	        argEnums.put(index, values);
+	        return this;
+	        
+	        
+	    }
+	}
+
+	static BasicBlock resolveBlockAtOrAfter(
+	        Map<Integer, BasicBlock> blocks,
+	        int rawTarget
+	) {
+	    int best = Integer.MAX_VALUE;
+	    BasicBlock result = null;
+
+	    for (BasicBlock bb : blocks.values()) {
+	        if (bb.startOffset >= rawTarget && bb.startOffset < best) {
+	            best = bb.startOffset;
+	            result = bb;
+	        }
+	    }
+	    return result;
+	}
+
+	static final Map<Integer, NativeSignature> nativeSigs = new HashMap<>();
+
+	static {
+	    nativeSigs.put(0x2c88a0,
+	        new NativeSignature("Script::playMusic")
+	            .enumArg(0, Map.of(
+	                0x1000002, "Victory",
+	                0x1000003, "bossBattle"
+	            ))
+
+	    );
+	}
+
+	public static final class DecodedInstr {
+	    public final int offset;
+	    public final int size;
+	    public final Instruction opcode;
+	    public final ParamType paramType;
+	    public final Object operand;
+
+	    public DecodedInstr(int offset,
+	                         int size,
+	                         Instruction opcode,
+	                         ParamType paramType,
+	                         Object operand) {
+	        this.offset = offset;
+	        this.size = size;
+	        this.opcode = opcode;
+	        this.paramType = paramType;
+	        this.operand = operand;
+	    }
+	}
+
     private enum Instruction {
         END("END"),
         MOV_BYTE("MOV", ParamType.VAL8),
@@ -196,7 +240,7 @@ public class DecodeScript {
         EQZ("EQZ"),
         J32("J", ParamType.VAL32),
         JZ32("JZ", ParamType.VAL32),
-        JNZ32("JNT", ParamType.VAL32),
+        JNZ32("JNZ", ParamType.VAL32),
         J8("J", ParamType.VAL8),
         JZ8("JZ", ParamType.VAL8),
         JNZ8("JNZ", ParamType.VAL8),
@@ -230,6 +274,125 @@ public class DecodeScript {
         }
     }
     
+    static boolean isTerminator(Instruction instr) {
+        switch (instr) {
+            case J32:
+            case J8:
+            case JZ32:
+            case JZ8:
+            case JNZ32:
+            case JNZ8:
+            case RET:
+            case END:
+            case ENDNZ:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static abstract class IRValue {}
+
+    static final class IRTemp extends IRValue {
+        public final int id;
+        IRTemp(int id) { this.id = id; }
+        public String toString() { return "t" + id; }
+    }
+
+    static final class IRConst extends IRValue {
+        public final Object value;
+
+        IRConst(Object value) {
+            this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            if (value instanceof Integer i) {
+                String floatStr = tryFormatFloat(i);
+                if (floatStr != null)
+                    return floatStr;
+                return Integer.toString(i);
+            }
+            return value.toString();
+        }
+
+        private static String tryFormatFloat(int bits) {
+            float f = Float.intBitsToFloat(bits);
+
+            if (!Float.isFinite(f))
+                return null;
+
+            // Reject tiny denormals / garbage
+            if (Math.abs(f) < 1e-6f && f != 0.0f)
+                return null;
+
+            // Reject absurd magnitudes
+            if (Math.abs(f) > 1e6f)
+                return null;
+
+            // Require either fractional or known float-ish
+            if (f != (int) f || isCommonFloat(bits)) {
+                return String.format("%sf", trimFloat(f));
+            }
+
+            return null;
+        }
+
+        private static boolean isCommonFloat(int bits) {
+            return bits == 0x3F800000 || // 1.0
+                   bits == 0x3F000000 || // 0.5
+                   bits == 0x40000000 || // 2.0
+                   bits == 0x40400000;   // 3.0
+        }
+
+        private static String trimFloat(float f) {
+            String s = Float.toString(f);
+            return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;
+        }
+    }
+
+    static int nextTempId = 0;
+    static IRTemp newTemp() {
+        return new IRTemp(nextTempId++);
+    }
+
+    static abstract class IRInstr {}
+
+    static final class IRAssign extends IRInstr {
+        public final IRValue dst;   // ✅ allow IRLocal or IRTemp
+        public final String op;
+        public final IRValue src1;
+        public final IRValue src2; // nullable
+
+        IRAssign(IRValue dst, String op, IRValue src1, IRValue src2) {
+            this.dst = dst;
+            this.op = op;
+            this.src1 = src1;
+            this.src2 = src2;
+        }
+    
+    }
+
+    static final class IRJump extends IRInstr {
+        public final BasicBlock target;
+        IRJump(BasicBlock target) { this.target = target; }
+    }
+
+    static final class IRCJump extends IRInstr {
+        public final IRValue cond;
+        public final BasicBlock trueTarget;
+        public final BasicBlock falseTarget;
+
+        IRCJump(IRValue cond, BasicBlock t, BasicBlock f) {
+            this.cond = cond;
+            this.trueTarget = t;
+            this.falseTarget = f;
+        }
+    }
+
+    static final class IRReturn extends IRInstr {}
+
     private enum ParamType {
         NONE,
         VAL8,
@@ -238,12 +401,13 @@ public class DecodeScript {
         VAL64;
     }
     
-    public static void disassemble(Access access) {
+    public static List<DecodedInstr> disassemble(Access access)
+ {
         // header 0x18
         // code
         // data?
         // string table?
-        
+    	List<DecodedInstr> instructions = new ArrayList<>();
         int magicValue = access.readInteger();
         int unk1 = access.readInteger();
         int unk2 = access.readInteger();
@@ -343,41 +507,47 @@ public class DecodeScript {
             System.out.println("Not at end");
 
         Instruction last = Instruction.RET;
+      
         while (codeAccess.getPosition() < codeAccess.getSize()) {
-            
-            Instruction instr = Instruction.values()[Byte.toUnsignedInt(codeAccess.readByte())];
-            
-            if(instr == Instruction.END && last == Instruction.RET)
-                break;
-            
-            last = instr;
-            
-            String label = labelMap.get((int) codeAccess.getPosition());
-            
-            if(label != null && instr.paramType != ParamType.VAL32)
-                System.out.println("label found for non-32bit value");
-            
-            switch (instr.paramType) {
-                case NONE:
-                    System.out.println(String.format("0x%06X %11s", codeAccess.getPosition() - 1, instr.code));
-                    break;
-                case VAL8:
-                    System.out.println(String.format("0x%06X %11s %d", codeAccess.getPosition() - 1, instr.code, codeAccess.readByte()));
-                    break;
-                case VAL16:
-                    System.out.println(String.format("0x%06X %11s %d", codeAccess.getPosition() - 1, instr.code, codeAccess.readShort()));
-                    break;
-                case VAL32:
-                    int value = codeAccess.readInteger();
-                    String str = label == null ? Integer.toString(value) : label;
 
-                    System.out.println(String.format("0x%06X %11s %s", codeAccess.getPosition() - 5, instr.code, str));
-                    break;
-                case VAL64:
-                    System.out.println(String.format("0x%06X %11s %d", codeAccess.getPosition() - 1, instr.code, codeAccess.readLong()));
-                    break;
+            int instrOffset = (int) codeAccess.getPosition();
+            Instruction instr =
+                Instruction.values()[Byte.toUnsignedInt(codeAccess.readByte())];
+
+            if (instr == Instruction.END && last == Instruction.RET)
+                break;
+
+            last = instr;
+
+            int size = 1; // opcode byte
+            Object operand = null;
+
+            switch (instr.paramType) {
+            case NONE:
+                break;
+            case VAL8:
+                operand = codeAccess.readByte();
+                size += 1;
+                break;
+            case VAL16:
+                operand = codeAccess.readShort();
+                size += 2;
+                break;
+            case VAL32:
+                operand = codeAccess.readInteger();
+                size += 4;
+                break;
+            case VAL64:
+                operand = codeAccess.readLong();
+                size += 8;
+                break;
             }
+
+            instructions.add(
+            		 new DecodedInstr(instrOffset, size, instr, instr.paramType, operand)
+            );
         }
+
         System.out.println();
         codeAccess.setPosition(Utils.align(codeAccess.getPosition(), 4));
         while (codeAccess.getPosition() < codeAccess.getSize()) {
@@ -391,15 +561,1058 @@ public class DecodeScript {
             
             System.out.println(String.format("0x%06X 0x%08X %4s", stringAccess.getPosition() + codeSize - 4, val, toASCIIString(val)));
         }
-
+        return instructions;
     }
     
+    static Set<Integer> findBlockStarts(List<DecodedInstr> instructions) {
+        Set<Integer> blockStarts = new HashSet<>();
+
+        // entry point
+        blockStarts.add(instructions.get(0).offset);
+
+        for (int i = 0; i < instructions.size(); i++) {
+            DecodedInstr di = instructions.get(i);
+
+            // ---- jump targets (ONLY real jumps with operands) ----
+            switch (di.opcode) {
+                case J32:
+                case J8:
+                case JZ8:
+                case JZ32:
+                case JNZ8:
+                case JNZ32:
+                	int raw = resolveJumpTarget(di);
+                	int canon = canonicalTargetOffset(instructions, raw);
+                	if (canon != -1) blockStarts.add(canon);
+
+
+                    // conditional jumps also have fallthrough
+                    if (di.opcode != Instruction.J32 && di.opcode != Instruction.J8) {
+                        blockStarts.add(di.offset + di.size);
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+
+               if (isTerminator(di.opcode) && i + 1 < instructions.size()) {
+                blockStarts.add(instructions.get(i + 1).offset);
+            }
+
+        }
+
+        return blockStarts;
+    }
+
+
+    static boolean isComparison(Instruction i) {
+        switch (i) {
+            case EQ_WORD:
+            case EQ_FLOAT:
+            case EQ_DOUBLE:
+            case EQZ:
+
+            case NE_WORD:
+            case NE_FLOAT:
+            case NE_DOUBLE:
+
+            case GT_WORD:
+            case GT_FLOAT:
+            case GT_DOUBLE:
+            case GTE_INT:
+            case GTE_FLOAT:
+            case GTE_DOUBLE:
+            case GT_UINT:
+            case GTE_UINT:
+
+            case LT_WORD:
+            case LT_FLOAT:
+            case LT_DOUBLE:
+            case LTE_INT:
+            case LTE_FLOAT:
+            case LTE_DOUBLE:
+            case LT_UINT:
+            case LTE_UINT:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+
+    
+    public static final class BasicBlock {
+        public  int stackMark = 0;
+		public final int startOffset;
+        public final List<DecodedInstr> instructions = new ArrayList<>();
+        public final Set<BasicBlock> successors = new HashSet<>();
+        public final Set<BasicBlock> predecessors = new HashSet<>();
+        public final List<IRInstr> ir = new ArrayList<>();
+        public List<IRValue> inStack;
+        public List<IRValue> outStack;
+        public IRValue inAcc;
+        public IRValue outAcc;
+
+        public boolean simulated = false;
+        public int stackArgCount = 0;
+        public BasicBlock(int startOffset) {
+            this.startOffset = startOffset;
+        }
+    }
+
+
+    static Map<Integer, BasicBlock> buildBasicBlocks(
+            List<DecodedInstr> instructions,
+            Set<Integer> blockStarts) {
+
+        Map<Integer, BasicBlock> blocks = new HashMap<>();
+        BasicBlock current = null;
+        
+        
+        for (DecodedInstr di : instructions) {
+            if (current == null || blockStarts.contains(di.offset)) {
+                current = new BasicBlock(di.offset);
+                blocks.put(di.offset, current);
+            }
+
+            current.instructions.add(di);
+
+            if (isTerminator(di.opcode)) {
+                current = null;
+            }
+        }
+
+
+        return blocks;
+    }
+
+    static void buildCFG(
+            Map<Integer, BasicBlock> blocks,
+            List<DecodedInstr> instructions
+    ) {
+        for (BasicBlock bb : blocks.values()) {
+            DecodedInstr last = bb.instructions.get(bb.instructions.size() - 1);
+
+            switch (last.opcode) {
+
+            case J32:
+            case J8: {
+                int targetOff = resolveJumpTarget(last);
+                connect(bb, resolveBlockAtOrAfter(blocks, targetOff));
+                break;
+            }
+
+            case JZ8:
+            case JZ32: {
+                int targetOff = resolveJumpTarget(last);
+                BasicBlock zeroTarget =
+                        resolveBlockAtOrAfter(blocks, targetOff);
+                BasicBlock fallthrough =
+                        blocks.get(last.offset + last.size);
+
+                if (zeroTarget != null) connect(bb, zeroTarget);
+                if (fallthrough != null) connect(bb, fallthrough);
+                break;
+            }
+
+            case JNZ8:
+            case JNZ32: {
+                int targetOff = resolveJumpTarget(last);
+                BasicBlock nonZeroTarget =
+                        resolveBlockAtOrAfter(blocks, targetOff);
+                BasicBlock fallthrough =
+                        blocks.get(last.offset + last.size);
+
+                if (nonZeroTarget != null) connect(bb, nonZeroTarget);
+                if (fallthrough != null) connect(bb, fallthrough);
+                break;
+            }
+
+            case RET:
+            case END:
+            case ENDNZ:
+                break;
+
+            default: {
+                BasicBlock fallthrough =
+                        blocks.get(last.offset + last.size);
+                if (fallthrough != null)
+                    connect(bb, fallthrough);
+            }
+            }
+        }
+    }
+
+
+
+
+    static void connect(BasicBlock from, BasicBlock to) {
+        if (to == null) return;
+        from.successors.add(to);
+        to.predecessors.add(from);
+    }
+
+    static int nextOffset(BasicBlock bb) {
+        DecodedInstr last = bb.instructions.get(bb.instructions.size() - 1);
+
+        
+        int idx = bb.instructions.indexOf(last);
+        // simpler: store end offset during block build
+        return last.offset  + last.size;
+    }
+    static final class IRStackArg extends IRValue {
+        public final int index;
+
+        IRStackArg(int index) {
+            this.index = index;
+        }
+
+        public String toString() {
+            return "arg" + index;
+        }
+    }
+    static IRValue popOrArg(BasicBlock bb, List<IRValue> stack) {
+        if (!stack.isEmpty()) {
+            return stack.remove(stack.size() - 1);
+        }
+
+        // stack underflow → implicit input
+        IRStackArg arg = new IRStackArg(bb.stackArgCount++);
+        return arg;
+    }
+
+    static List<IRValue> simulateBlock(
+    	    BasicBlock bb,
+    	    List<IRValue> inputStack,
+    	    IRValue inputAcc,
+    	    Map<Integer, BasicBlock> blocks,
+    	    LocalTracker locals
+    	)
+
+
+ {
+    	    List<IRValue> stack = new ArrayList<>(inputStack);
+
+    	    IRValue acc = inputAcc;
+
+    	    bb.stackMark = stack.size();
+    	    for (DecodedInstr di : bb.instructions) {
+    	        switch (di.opcode) {
+
+    	        // ----------- ACCUMULATOR PRODUCERS -----------
+    	        case FPADD_BYTE:
+    	        case FPADD_WORD: {
+    	            IRTemp t = newTemp();
+    	            bb.ir.add(new IRAssign(
+    	                t,
+    	                "FPADD",
+    	                new IRConst(di.operand),
+    	                null
+    	            ));
+    	            acc = t;
+    	            break;
+    	        }
+
+    	        case MOV_BYTE:
+    	        case MOV_SHORT:
+    	        case MOV_WORD:
+    	        case MOV_WORD2:
+    	        case MOV_LONG: {
+    	            acc = new IRConst(di.operand); 
+    	            break;
+    	        }
+
+    	        case LD_WORD:
+    	        case LD_UBYTE:
+    	        case LD_USHORT:
+    	        case LD_BYTE:
+    	        case LD_SHORT: {
+    	            IRConst addr = new IRConst(di.operand);
+    	            acc = addr;              // address, not loaded value
+    	            break;
+    	        }
+
+
+    	        case FPLD32_UBYTE:
+    	        case FPLD32_USHORT:
+    	        case FPLD32_WORD:
+    	        case FPLD32_BYTE:
+    	        case FPLD32_SHORT:
+    	        case FPLD32_LONG:
+
+    	        case FPLD8_UBYTE:
+    	        case FPLD8_USHORT:
+    	        case FPLD8_WORD:
+    	        case FPLD8_BYTE:
+    	        case FPLD8_SHORT:
+    	        case FPLD8_LONG: {
+    	            int addr = ((Number) di.operand).intValue();
+    	            IRTemp t = newTemp();
+    	            bb.ir.add(new IRAssign(t, "FPLOAD", new IRConst(addr), null));
+    	            acc = t;
+    	            break;
+    	        }
+
+
+    	        case ADD_W:
+    	        case ADD_F:
+    	        case ADD_D: {
+    	            // VM style: ACC = pop() (+) ACC
+    	        	IRValue left = materializeLoad(bb, popOrArg(bb, stack));
+    	        	IRValue right = materializeLoad(
+    	        	    bb,
+    	        	    (acc != null) ? acc : popOrArg(bb, stack)
+    	        	);
+
+    	        	IRTemp t = newTemp();
+    	        	bb.ir.add(new IRAssign(t, di.opcode.code, left, right));
+    	        	acc = t;
+
+    	            break;
+    	        }
+
+    	        case EQZ: {
+    	            IRTemp t = newTemp();
+    	            bb.ir.add(new IRAssign(t, "EQZ", acc != null ? acc : popOrArg(bb, stack), null));
+    	            acc = t;
+    	            break;
+    	        }
+
+    	        // ----------- STACK / ARGUMENT OPS -----------
+
+    	        case PUSHW: {
+    	            IRValue v = (acc != null) ? acc : new IRStackArg(bb.stackArgCount++);
+    	            stack.add(v);
+  
+    	            break;
+    	        }
+
+
+    	        case NE_WORD:
+    	        case NE_FLOAT:
+    	        case NE_DOUBLE: {
+    	            IRValue left;
+    	            if (!stack.isEmpty()) {
+    	                left = materializeLoad(bb, stack.remove(stack.size() - 1));
+    	            } else {
+    	                throw new IllegalStateException("NE_WORD: stack underflow");
+    	            }
+
+    	            IRValue right;
+    	            if (acc != null) {
+    	                right = materializeLoad(bb, acc);
+    	            } else {
+    	                throw new IllegalStateException("NE_WORD: missing ACC");
+    	            }
+
+    	            IRTemp t = newTemp();
+    	            bb.ir.add(new IRAssign(t, "NE", left, right));
+    	            acc = t;
+    	            bb.stackMark = stack.size();
+    	            break;
+    	        }
+
+
+    	        case POPW: {
+    	            if (!stack.isEmpty()) stack.remove(stack.size() - 1);
+    	            
+    	            break;
+    	        }
+
+    	        case POP8:
+    	        case POP32: {
+    	            acc = null;
+    	            break; // do NOT touch logical stack
+    	        }
+
+
+    	        // ----------- STORE: addr from stack, value from ACC -----------
+    	        case STR_UINT: {
+    	            // If we do not have both components, this is not a real store
+    	            if (acc == null || stack.isEmpty()) {
+    	                acc = null;
+    	                break; // 🔥 discard-only STR
+    	            }
+
+    	            IRValue addr = popOrArg(bb, stack);
+    	            IRValue value = acc;
+
+    	            if (addr instanceof IRConst c) {
+    	                int a = ((Number) c.value).intValue();
+    	                IRLocal local = locals.getLocal(a);
+    	                bb.ir.add(new IRAssign(local, "=", value, null));
+    	            }
+    	            else if (addr instanceof IRLocal local) {
+    	                bb.ir.add(new IRAssign(local, "=", value, null));
+    	            }
+    	            else {
+    	                bb.ir.add(new IRAssign(null, "STORE", addr, value));
+    	            }
+
+    	            acc = null;
+    	            break;
+    	        }
+
+
+
+
+    	        // ----------- CONTROL FLOW -----------
+    	     // ----------- CONTROL FLOW -----------
+
+    	        case J32:
+    	        case J8: {
+    	            int targetOff = resolveJumpTarget(di);
+    	            BasicBlock target =
+    	                    resolveBlockAtOrAfter(blocks, targetOff);
+    	            bb.ir.add(new IRJump(target));
+    	            bb.outAcc = null;
+    	            return stack;
+    	        }
+
+    	        case JZ32:
+    	        case JZ8: {
+    	            IRValue cond = acc;
+    	            int targetOff = resolveJumpTarget(di);
+
+    	            BasicBlock zeroTarget =
+    	                    resolveBlockAtOrAfter(blocks, targetOff);
+    	            BasicBlock nonZeroTarget =
+    	                    blocks.get(di.offset + di.size);
+
+    	            bb.ir.add(new IRCJump(cond, zeroTarget, nonZeroTarget));
+    	            bb.outAcc = null;
+    	            return stack;
+    	        }
+
+    	        case JNZ32:
+    	        case JNZ8: {
+    	            IRValue cond = acc;
+    	            int targetOff = resolveJumpTarget(di);
+
+    	            BasicBlock nonZeroTarget =
+    	                    resolveBlockAtOrAfter(blocks, targetOff);
+    	            BasicBlock zeroTarget =
+    	                    blocks.get(di.offset + di.size);
+
+    	            bb.ir.add(new IRCJump(cond, nonZeroTarget, zeroTarget));
+    	            bb.outAcc = null;
+    	            return stack;
+    	        }
+
+  
+
+    	        // ----------- CALLS: args are exactly what was PUSHed -----------
+
+    	        case CALL: {
+    	            int target = ((Number) di.operand).intValue();
+
+    	            List<IRValue> args = new ArrayList<>();
+    	            while (stack.size() > bb.stackMark) {
+    	                args.add(0, stack.remove(stack.size() - 1));
+    	            }
+
+    	            bb.stackMark = stack.size();
+
+    	            IRTemp result = (target == -1) ? null : newTemp();
+    	            bb.ir.add(new IRCall(target, args, result, false));
+    	            acc = result;
+    	            break;
+    	        }
+    	        case NEG_INT: {
+    	            if (acc == null)
+    	                throw new IllegalStateException("NEG_INT: missing ACC");
+
+    	            IRTemp t = newTemp();
+    	            bb.ir.add(new IRAssign(t, "NEG", acc, null));
+    	            acc = t;
+    	            break;
+    	        }
+
+
+    	        case NATIVECALL: {
+    	            int target = ((Number) di.operand).intValue();
+
+    	            List<IRValue> args = new ArrayList<>();
+
+    	            while (stack.size() > bb.stackMark) {
+    	                args.add(0, stack.remove(stack.size() - 1));
+    	            }
+
+    	            // 🔥 FIX: implicit ACC argument
+    	            if (args.isEmpty() && acc != null) {
+    	                args.add(acc);
+    	            }
+
+    	            bb.stackMark = stack.size();
+    	            bb.ir.add(new IRCall(target, args, null, true));
+    	            acc = null;
+    	            break;
+    	        }
+
+
+
+    	        case RET:
+    	            bb.ir.add(new IRReturn());
+    	            bb.outAcc = acc;
+    	            return stack;
+    	        case ENDNZ:
+    	            bb.ir.add(new IRReturn());
+    	            return stack;
+
+    	        default:
+    	            break;
+    	        }
+    	    }
+
+    	    bb.outAcc = acc;
+    	    return stack;
+    	}
+
+
+    static IRValue mergeAcc(Set<BasicBlock> preds) {
+        IRValue ref = null;
+
+        for (BasicBlock p : preds) {
+            if (p.outAcc == null)
+                continue;
+
+            if (ref == null) {
+                ref = p.outAcc;
+            } else if (ref != p.outAcc) {
+                return null; // conflicting ACCs
+            }
+        }
+
+        return ref;
+    }
+
+    static void cleanupIR(BasicBlock bb, LocalTracker locals) {
+        Map<IRTemp, IRValue> subst = new HashMap<>();
+        List<IRInstr> newIR = new ArrayList<>();
+        
+        for (IRInstr ir : bb.ir) {
+
+        	
+            if (ir instanceof IRAssign a) {
+
+                // Apply substitutions to sources first
+                IRValue src1 = substitute(a.src1, subst);
+                IRValue src2 = substitute(a.src2, subst);
+
+             // Fold: tX = NEG CONST → tX = CONST(-value)
+                if (a.dst instanceof IRTemp t &&
+                    a.op.equals("NEG") &&
+                    a.src1 instanceof IRConst c &&
+                    a.src2 == null) {
+
+                    Object v = c.value;
+
+                    if (v instanceof Integer i) {
+                        subst.put(t, new IRConst(-i));
+                        continue;
+                    }
+                }
+
+
+             // STORE <addr>, <value>
+// If <addr> is a constant, turn it into a write to the corresponding IRLocal.
+if (a.op.equals("STORE") && src1 instanceof IRConst c) {
+    int addr = ((Number) c.value).intValue();
+    IRLocal dst = locals.getLocal(addr);
+    newIR.add(new IRAssign(dst, "=", src2, null));
+    continue;
+}
+
+
+
+                // Pattern: tX = CONST c
+                if (a.dst instanceof IRTemp t &&
+                    a.op.equals("CONST")) {
+
+                    subst.put(t, src1);
+                    continue; // drop this instruction
+                }
+
+                // Pattern: local = tX   → local = value
+                if (a.dst instanceof IRLocal &&
+                    src2 == null &&
+                    src1 instanceof IRTemp t &&
+                    subst.containsKey(t)) {
+
+                    newIR.add(new IRAssign(
+                        a.dst,
+                        "=",
+                        subst.get(t),
+                        null
+                    ));
+                    continue;
+                }
+
+                // General case
+                newIR.add(new IRAssign(a.dst, a.op, src1, src2));
+            }
+            else if (ir instanceof IRCall c) {
+                // substitute inside arguments too
+                List<IRValue> newArgs = new ArrayList<>(c.args.size());
+                for (IRValue a : c.args) newArgs.add(substitute(a, subst));
+
+                newIR.add(new IRCall(c.target, newArgs, substitute(c.result, subst), c.isNative));
+            }
+            else {
+                newIR.add(ir);
+            }
+        }
+
+        bb.ir.clear();
+        bb.ir.addAll(newIR);
+    }
+    static final class IRCall extends IRInstr {
+        final int target;
+        final List<IRValue> args;
+        final IRValue result;
+        final boolean isNative;
+
+        IRCall(int target, List<IRValue> args, IRValue result, boolean isNative) {
+            this.target = target;
+            this.args = args;
+            this.result = result;
+            this.isNative = isNative;
+        }
+
+        @Override
+        public String toString() {
+            String name;
+
+            if (target == -1) {
+                name = "internal_alloc";
+            }
+            else if (isNative) {
+                name = nativeNames.getOrDefault(
+                    target,
+                    String.format("native_0x%X", target)
+                );
+            }
+            else {
+                name = String.format("func_0x%X", target);
+            }
+
+            String argStr = args.isEmpty()
+                ? ""
+                : args.stream().map(Object::toString).collect(Collectors.joining(", "));
+
+            if (result != null) {
+                return result + " = call " + name + "(" + argStr + ")";
+            } else {
+                return "call " + name + "(" + argStr + ")";
+            }
+        }
+
+    }
+
+
+    static IRValue substitute(IRValue v, Map<IRTemp, IRValue> subst) {
+        if (v instanceof IRTemp t && subst.containsKey(t))
+            return subst.get(t);
+        return v;
+    }
+    static void inlineSingleUseTemps(BasicBlock bb) {
+        Map<IRTemp, Integer> uses = new HashMap<>();
+
+        // Count uses
+        for (IRInstr ir : bb.ir) {
+            if (ir instanceof IRAssign a) {
+                countUse(a.src1, uses);
+                countUse(a.src2, uses);
+            }
+        }
+
+        List<IRInstr> newIR = new ArrayList<>();
+        Map<IRTemp, IRAssign> defs = new HashMap<>();
+
+        // Collect definitions
+        for (IRInstr ir : bb.ir) {
+            if (ir instanceof IRAssign a && a.dst instanceof IRTemp t) {
+                defs.put(t, a);
+            }
+        }
+
+        for (IRInstr ir : bb.ir) {
+            if (ir instanceof IRAssign a &&
+                a.dst instanceof IRLocal &&
+                a.src1 instanceof IRTemp t &&
+                uses.getOrDefault(t, 0) == 1 &&
+                defs.containsKey(t)) {
+
+                IRAssign def = defs.get(t);
+
+                newIR.add(new IRAssign(
+                    a.dst,
+                    def.op,
+                    def.src1,
+                    def.src2
+                ));
+            }
+            else if (!(ir instanceof IRAssign a2 &&
+                    a2.dst instanceof IRTemp &&
+                    uses.getOrDefault(a2.dst, 0) == 1 &&
+                    a2.op.equals("CONST"))) {   // 🔥 ONLY inline CONST temps
+             newIR.add(ir);
+         }
+
+        }
+
+        bb.ir.clear();
+        bb.ir.addAll(newIR);
+    }
+
+    static void countUse(IRValue v, Map<IRTemp, Integer> uses) {
+        if (v instanceof IRTemp t)
+            uses.merge(t, 1, Integer::sum);
+    }
+
+    static List<IRValue> popCallArgs(List<IRValue> stack) {
+        List<IRValue> args = new ArrayList<>();
+
+        // heuristic: consume until empty or stack arg boundary
+        while (!stack.isEmpty()) {
+            IRValue v = stack.remove(stack.size() - 1);
+            args.add(0, v); // preserve order
+        }
+
+        return args;
+    }
+
+    static List<IRValue> mergeStacks(Set<BasicBlock> preds) {
+        List<IRValue> ref = null;
+
+        for (BasicBlock p : preds) {
+            if (p.outStack == null)
+                continue;
+
+            if (ref == null) {
+                ref = p.outStack;
+            } else if (!sameShape(ref, p.outStack)) {
+                // give up – stack mismatch
+                return new ArrayList<>();
+            }
+        }
+
+        return ref == null ? new ArrayList<>() : new ArrayList<>(ref);
+    }
+
+    static boolean sameShape(List<IRValue> a, List<IRValue> b) {
+        if (a.size() != b.size())
+            return false;
+
+        for (int i = 0; i < a.size(); i++) {
+            if (a.get(i).getClass() != b.get(i).getClass())
+                return false;
+        }
+        return true;
+    }
+
+    static void simulateAllBlocks(Map<Integer, BasicBlock> blocks) {
+        LocalTracker locals = new LocalTracker();
+
+        // sort blocks by address (good enough for now)
+        List<BasicBlock> ordered = new ArrayList<>(blocks.values());
+        ordered.sort(Comparator.comparingInt(b -> b.startOffset));
+
+        for (BasicBlock bb : ordered) {
+
+            if (bb.predecessors.isEmpty()) {
+                bb.inStack = new ArrayList<>();
+            } else {
+                bb.inStack = mergeStacks(bb.predecessors);
+                bb.inAcc = mergeAcc(bb.predecessors);
+            }
+
+            bb.outStack = simulateBlock(
+            	    bb,
+            	    bb.inStack,
+            	    bb.inAcc,
+            	    blocks,
+            	    locals
+            	);
+        }
+
+        for (BasicBlock bb : ordered) {
+            cleanupIR(bb, locals);
+            inlineSingleUseTemps(bb);
+        }
+    }
+
+
+
+
     private static String toASCIIString(int val) {
         return new String(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(val).array()).replaceAll("\\p{C}", " ");
     }
     
     private static Map<Integer, Integer> map = new HashMap<>();
     
+    static void dumpIRToFile(
+            Map<Integer, BasicBlock> blocks,
+            File outFile) throws IOException {
+
+        try (PrintWriter out = new PrintWriter(
+                new BufferedWriter(new FileWriter(outFile)))) {
+
+            List<BasicBlock> ordered =
+                    new ArrayList<>(blocks.values());
+
+            ordered.sort(Comparator.comparingInt(bb -> bb.startOffset));
+
+            for (BasicBlock bb : ordered) {
+                out.printf("BLOCK 0x%06X%n", bb.startOffset);
+
+                out.println("  ; raw instructions");
+                for (DecodedInstr di : bb.instructions) {
+                    out.printf(
+                        "  ; %06X: %-12s %s%n",
+                        di.offset,
+                        di.opcode.name(),
+                        di.operand == null ? "" : di.operand.toString()
+                    );
+                }
+
+                out.println("  ; lifted IR");
+                for (IRInstr ir : bb.ir) {
+                    out.println("  " + formatIR(ir));
+                }
+
+                out.println();
+            }
+        }
+    }
+    private static IRValue materializeLoad(BasicBlock bb, IRValue v) {
+ 
+        if (v instanceof IRConst)
+            return v;
+
+        return v;
+    }
+
+
+    static String formatIR(IRInstr ir) {
+    
+    	if (ir instanceof IRAssign a) {
+    	    if ("=".equals(a.op)) {
+    	        return a.dst + " = " + a.src1;
+    	    }
+    	    if (a.src2 != null) {
+    	        return a.dst + " = " + a.op + " " + a.src1 + ", " + a.src2;
+    	    } else {
+    	        return a.dst + " = " + a.op + " " + a.src1;
+    	    }
+    	}
+
+
+        if (ir instanceof IRCJump c) {
+            String t =
+                (c.trueTarget != null)
+                ? "0x" + Integer.toHexString(c.trueTarget.startOffset)
+                : "<unknown>";
+
+            String f =
+                (c.falseTarget != null)
+                ? "0x" + Integer.toHexString(c.falseTarget.startOffset)
+                : "<unknown>";
+
+            return "if " + c.cond + " goto " + t + " else " + f;
+        }
+
+        if (ir instanceof IRJump j) {
+            String t =
+                (j.target != null)
+                ? "0x" + Integer.toHexString(j.target.startOffset)
+                : "<unknown>";
+
+            return "goto " + t;
+        }
+
+        if (ir instanceof IRCall c) {
+
+            NativeSignature sig = nativeSigs.get(c.target);
+
+            String name;
+            if (c.target == -1) {
+                name = "internal_alloc";
+            }
+            else if (c.isNative) {
+                if (sig != null) {
+                    name = sig.name; // ✅ USE THE SIGNATURE
+                } else {
+                    name = nativeNames.getOrDefault(
+                        c.target,
+                        String.format("native_0x%X", c.target)
+                    );
+                }
+            }
+            else {
+                name = String.format("func_0x%X", c.target);
+            }
+
+            // ---- argument formatting (enum-aware) ----
+            List<String> args = new ArrayList<>();
+            for (int i = 0; i < c.args.size(); i++) {
+                IRValue v = c.args.get(i);
+
+                if (sig != null &&
+                    v instanceof IRConst k &&
+                    sig.argEnums.containsKey(i)) {
+
+                    String sym = sig.argEnums.get(i).get(k.value);
+                    if (sym != null) {
+                        args.add(sym);
+                        continue;
+                    }
+                }
+
+                args.add(v.toString());
+            }
+
+            return c.result != null
+                ? c.result + " = call " + name + "(" + String.join(", ", args) + ")"
+                : "call " + name + "(" + String.join(", ", args) + ")";
+        }
+
+
+        if (ir instanceof IRReturn) {
+            return "return";
+        }
+
+        return ir.toString();
+    }
+
+    static final class IRLocal extends IRValue {
+        final int index;
+        IRLocal(int index) { this.index = index; }
+        public String toString() { return "local_" + index; }
+    }
+    static final class LocalTracker {
+        private final Map<Integer, IRLocal> locals = new HashMap<>();
+        private int nextIndex = 0;
+
+        IRLocal getLocal(int address) {
+            return locals.computeIfAbsent(
+                address,
+                a -> new IRLocal(nextIndex++)
+            );
+        }
+    }
+
+    static void dumpDisassemblyToFile(
+            List<DecodedInstr> instrs,
+            File outFile) throws IOException {
+
+        try (PrintWriter out = new PrintWriter(
+                new BufferedWriter(new FileWriter(outFile)))) {
+
+            for (DecodedInstr di : instrs) {
+                out.printf(
+                    "0x%06X  %-12s",
+                    di.offset,
+                    di.opcode.name()
+                );
+
+                if (di.operand != null) {
+                    if (di.operand instanceof Number n) {
+                        out.printf(" 0x%X", n.longValue());
+                    } else {
+                        out.printf(" %s", di.operand);
+                    }
+                }
+
+                out.println();
+            }
+        }
+    }
+
+    static void mergeBasicBlocks(Map<Integer, BasicBlock> blocks) {
+        boolean changed;
+
+        do {
+            changed = false;
+
+            List<BasicBlock> list = new ArrayList<>(blocks.values());
+
+            for (BasicBlock a : list) {
+                if (a.successors.size() != 1)
+                    continue;
+
+                BasicBlock b = a.successors.iterator().next();
+
+                if (b.predecessors.size() != 1)
+                    continue;
+
+                DecodedInstr lastInstr =
+                    a.instructions.get(a.instructions.size() - 1);
+
+                if (isTerminator(lastInstr.opcode))
+                    continue;
+
+                // ---- merge B into A ----
+                a.instructions.addAll(b.instructions);
+                a.ir.addAll(b.ir);
+
+                a.successors.clear();
+                a.successors.addAll(b.successors);
+
+                for (BasicBlock succ : b.successors) {
+                    succ.predecessors.remove(b);
+                    succ.predecessors.add(a);
+                }
+
+                blocks.remove(b.startOffset);
+                changed = true;
+                break;
+            }
+        } while (changed);
+    }
+    
+    static int canonicalTargetOffset(List<DecodedInstr> instrs, int rawTargetOff) {
+        for (DecodedInstr di : instrs) {
+            if (di.offset >= rawTargetOff) {
+                return di.offset;
+            }
+        }
+        return -1;
+    }
+
+
+    static BasicBlock resolveTargetBlock(
+    	    Map<Integer, BasicBlock> blocks,
+    	    List<DecodedInstr> instrs,
+    	    int rawTargetOff
+    	) {
+    	    int canon = canonicalTargetOffset(instrs, rawTargetOff);
+    	    return canon == -1 ? null : blocks.get(canon);
+    	}
+
+
+    static int resolveJumpTarget(DecodedInstr di) {
+        // HARD GUARD — never trust callers
+        if (di.paramType == ParamType.NONE || di.operand == null) {
+            throw new IllegalStateException(
+                "resolveJumpTarget called on non-jump instruction: " +
+                di.opcode + " at 0x" + Integer.toHexString(di.offset)
+            );
+        }
+
+        int off = ((Number) di.operand).intValue();
+
+        if (di.paramType == ParamType.VAL8) {
+            byte rel = (byte) off;
+            return di.offset + di.size + rel;
+        }
+
+        // VAL32 = absolute
+        return off;
+    }
+
+
     public static void main(String[] args) throws IOException {
         try (Access acc = new FileAccess(new File("./code.bin"), true)) {
             for (ScriptFunction f : ScriptFunction.values()) {
@@ -412,12 +1625,25 @@ public class DecodeScript {
             }
         }
         
-        try (Access acc = new FileAccess(new File("./Input/map/fie01.res"), true)) {
+        try (Access acc = new FileAccess(new File("./tow41.res"), true)) {
             AbstractKCAP kcap = (AbstractKCAP) ResPayload.craft(acc);
             GenericPayload pl = (GenericPayload) kcap.get(0);
-            //GenericPayload pl = (GenericPayload) ResPayload.craft(acc);
             try (StreamAccess access = new StreamAccess(pl.getData())) {
-                disassemble(access);
+            	List<DecodedInstr> instrs = disassemble(access);
+            	dumpDisassemblyToFile(
+            		    instrs,
+            		    new File("./output/tow41.disasm.txt")
+            		);
+            	Set<Integer> blockStarts = findBlockStarts(instrs);
+             	Map<Integer, BasicBlock> blocks = buildBasicBlocks(instrs, blockStarts);
+            	buildCFG(blocks, instrs);      	
+             	simulateAllBlocks(blocks);	
+            	mergeBasicBlocks(blocks); 
+           
+            	dumpIRToFile(
+            		    blocks,
+            		    new File("./output/tow41.ir.txt")
+            		);
             }
         }
     }
