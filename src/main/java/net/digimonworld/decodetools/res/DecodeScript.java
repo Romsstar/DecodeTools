@@ -19,6 +19,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.swing.JFileChooser;
+import javax.swing.UIManager;
+
 import net.digimonworld.decodetools.core.Access;
 import net.digimonworld.decodetools.core.FileAccess;
 import net.digimonworld.decodetools.core.StreamAccess;
@@ -1581,7 +1584,11 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
         return -1;
     }
 
-
+    static void dumpBinary(byte[] data, File outFile) throws IOException {
+        try (var out = new java.io.FileOutputStream(outFile)) {
+            out.write(data);
+        }
+    }
     static BasicBlock resolveTargetBlock(
     	    Map<Integer, BasicBlock> blocks,
     	    List<DecodedInstr> instrs,
@@ -1612,6 +1619,26 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
         return off;
     }
 
+    static File chooseInputFile() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception ignored) {}
+
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Select .res file to decode");
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+
+        int result = chooser.showOpenDialog(null);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            return chooser.getSelectedFile();
+        }
+
+        throw new RuntimeException("No input file selected.");
+    }
+    
+    static File withSuffix(File input, String suffix) {
+        return new File(input.getParentFile(), input.getName() + suffix);
+    }
 
     public static void main(String[] args) throws IOException {
         try (Access acc = new FileAccess(new File("./code.bin"), true)) {
@@ -1625,27 +1652,37 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
             }
         }
         
-        try (Access acc = new FileAccess(new File("./tow41.res"), true)) {
+        // ---- pick input file ----
+        File input = chooseInputFile();
+
+        File disasmOut = withSuffix(input, ".disasm");
+        File irOut     = withSuffix(input, ".ir");
+        File binOut    = withSuffix(input, ".bin");
+        
+        try (Access acc = new FileAccess(input, true)) {
             AbstractKCAP kcap = (AbstractKCAP) ResPayload.craft(acc);
             GenericPayload pl = (GenericPayload) kcap.get(0);
+            dumpBinary(pl.getData(), binOut);
             try (StreamAccess access = new StreamAccess(pl.getData())) {
-            	List<DecodedInstr> instrs = disassemble(access);
-            	dumpDisassemblyToFile(
-            		    instrs,
-            		    new File("./output/tow41.disasm.txt")
-            		);
-            	Set<Integer> blockStarts = findBlockStarts(instrs);
-             	Map<Integer, BasicBlock> blocks = buildBasicBlocks(instrs, blockStarts);
-            	buildCFG(blocks, instrs);      	
-             	simulateAllBlocks(blocks);	
-            	mergeBasicBlocks(blocks); 
-           
-            	dumpIRToFile(
-            		    blocks,
-            		    new File("./output/tow41.ir.txt")
-            		);
+
+                List<DecodedInstr> instrs = disassemble(access);
+                dumpDisassemblyToFile(instrs, disasmOut);
+
+                Set<Integer> blockStarts = findBlockStarts(instrs);
+                Map<Integer, BasicBlock> blocks =
+                        buildBasicBlocks(instrs, blockStarts);
+
+                buildCFG(blocks, instrs);
+                simulateAllBlocks(blocks);
+                mergeBasicBlocks(blocks);
+
+                dumpIRToFile(blocks, irOut);
             }
         }
+
+        System.out.println("Written:");
+        System.out.println("  " + disasmOut.getAbsolutePath());
+        System.out.println("  " + irOut.getAbsolutePath());
     }
     
     enum ScriptFunction {
