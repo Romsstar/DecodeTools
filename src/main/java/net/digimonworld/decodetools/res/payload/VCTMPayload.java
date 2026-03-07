@@ -126,8 +126,7 @@ public class VCTMPayload extends ResPayload {
             timeValues[i] -= firstTime; // Normalize time so first keyframe is at 0.0
         }
         // timeScale = getTimeScale(timeValues);
-        
-        timeScale = TimeScale.EVERY_10_FRAMES; // Match Vanilla
+        timeScale = pickTimeScale(timeValues, ticks);
     
         InitializeVCTM(3);
 
@@ -135,7 +134,7 @@ public class VCTMPayload extends ResPayload {
         data2 = new VCTMEntry[numEntries];                  
         
         for (int i = 0; i < numEntries; i++) {               
-      	byte[] timeBytes = { (byte)Math.round((timeValues[i] / ticks) * 33.3333f) };   
+      	byte[] timeBytes = { (byte)Math.round((timeValues[i] / ticks) * 30.0f * 10.0f / timeScale.value) };
         data1[i] = new VCTMEntry(timeBytes);
        } 
         
@@ -171,8 +170,8 @@ public class VCTMPayload extends ResPayload {
         for (int i = 0; i < timeValues.length; i++) {
             timeValues[i] -= firstTime; // Normalize time so first keyframe is at 0.0
         }
-        // Use vanilla time scale (EVERY_10_FRAMES)
-        timeScale = TimeScale.EVERY_10_FRAMES; 
+        // Use pickTimeScale to choose the most compact representation
+        timeScale = pickTimeScale(timeValues, ticks);
          
         InitializeVCTM(4);
 
@@ -181,11 +180,11 @@ public class VCTMPayload extends ResPayload {
         
         // Process time values as before.
         for (int i = 0; i < numEntries; i++) {       	
-            byte[] timeBytes = { (byte)Math.round((timeValues[i] / ticks) * 33.3333f) };   
+            byte[] timeBytes = { (byte)Math.round((timeValues[i] / ticks) * 30.0f * 10.0f / timeScale.value) };
             data1[i] = new VCTMEntry(timeBytes);
         }                         
 
-        // Build a temporary array of quaternions as floats
+        // Build a temporary array of quaternions as floatsI have 
         float[][] quats = new float[numEntries][4];
         for (int i = 0; i < numEntries; i++) {       
             AIQuatKey key = keys.get(i);
@@ -232,6 +231,12 @@ public class VCTMPayload extends ResPayload {
 
 
     public static short toFloat16(float value) {
+        // Snap to 1.0 if within float16 rounding noise — 0.999512 is the adjacent
+        // float16 below 1.0 and is never intentional in animation data.
+        if (Math.abs(value - 1.0f) < 0.001f) value = 1.0f;
+        if (Math.abs(value + 1.0f) < 0.001f) value = -1.0f;
+        if (Math.abs(value) < 0.001f) value = 0.0f;
+
         int intBits = Float.floatToIntBits(value);
         int sign = (intBits >>> 16) & 0x8000; 
         int exp = ((intBits >>> 23) & 0xFF) - (127 - 15);
@@ -446,6 +451,151 @@ public class VCTMPayload extends ResPayload {
         }
     }
     
+    // -------------------------------------------------------------------------
+    // Mutation helpers
+    // -------------------------------------------------------------------------
+
+    /** Recomputes coordStart after numEntries / entrySize has changed. */
+    private void recalculateOffsets() {
+        entriesStart = 0x20;
+        coordStart = Utils.align(entriesStart + numEntries * entrySize, 0x04);
+    }
+
+    /**
+     * Converts a <em>display</em> time value (i.e. already multiplied by
+     * {@code timeScale.value}) back to the raw byte representation used in
+     * {@code data1}.
+     */
+    private byte[] convertTimeToBytes(float displayTime) {
+        float raw = displayTime / timeScale.value;
+        ByteBuffer buf;
+        switch (timeType) {
+            case UINT8:
+                return new byte[]{ (byte) Math.round(raw) };
+            case INT8:
+                return new byte[]{ (byte) Math.round(raw) };
+            case UINT16: {
+                int v = Math.round(raw);
+                return new byte[]{ (byte)(v & 0xFF), (byte)((v >> 8) & 0xFF) };
+            }
+            case INT16: {
+                short v = (short) Math.round(raw);
+                return new byte[]{ (byte)(v & 0xFF), (byte)((v >> 8) & 0xFF) };
+            }
+            case FLOAT:
+                buf = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN);
+                buf.putFloat(raw);
+                return buf.array();
+            default:
+                return new byte[]{ 0 };
+        }
+    }
+
+    /**
+     * Converts an array of component float values back to the packed byte
+     * representation used in {@code data2}, honouring {@code componentType}.
+     */
+    private byte[] convertValuesToBytes(float[] values) {
+        int bpc = GetValueBytes();
+        byte[] result = new byte[values.length * bpc];
+        for (int i = 0; i < values.length; i++) {
+            byte[] chunk;
+            switch (componentType) {
+                case FLOAT16: {
+                    short f16 = toFloat16(values[i]);
+                    chunk = new byte[]{ (byte)(f16 & 0xFF), (byte)((f16 >> 8) & 0xFF) };
+                    break;
+                }
+                case FLOAT32: {
+                    ByteBuffer buf = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN);
+                    buf.putFloat(values[i]);
+                    chunk = buf.array();
+                    break;
+                }
+                case UINT8:
+                    chunk = new byte[]{ (byte) Math.round(values[i]) };
+                    break;
+                case INT8:
+                    chunk = new byte[]{ (byte) Math.round(values[i]) };
+                    break;
+                case UINT16: {
+                    int v = Math.round(values[i]);
+                    chunk = new byte[]{ (byte)(v & 0xFF), (byte)((v >> 8) & 0xFF) };
+                    break;
+                }
+                case INT16: {
+                    short v = (short) Math.round(values[i]);
+                    chunk = new byte[]{ (byte)(v & 0xFF), (byte)((v >> 8) & 0xFF) };
+                    break;
+                }
+                default:
+                    chunk = new byte[]{ 0 };
+                    break;
+            }
+            System.arraycopy(chunk, 0, result, i * bpc, bpc);
+        }
+        return result;
+    }
+
+    /**
+     * Appends a new keyframe at the end of this VCTM.
+     *
+     * @param displayTime      the time value as shown in the UI (= raw * timeScale)
+     * @param componentValues  one float per component (X [Y [Z [W]]])
+     */
+    public void addEntry(float displayTime, float[] componentValues) {
+        if (componentValues.length != getComponentCount())
+            throw new IllegalArgumentException("Expected " + getComponentCount() + " components, got " + componentValues.length);
+
+        data1 = Arrays.copyOf(data1, numEntries + 1);
+        data2 = Arrays.copyOf(data2, numEntries + 1);
+        data1[numEntries] = new VCTMEntry(convertTimeToBytes(displayTime));
+        data2[numEntries] = new VCTMEntry(convertValuesToBytes(componentValues));
+        numEntries++;
+        cachedFrameList = null;
+        recalculateOffsets();
+    }
+
+    /**
+     * Removes the keyframe at {@code index}.
+     */
+    public void removeEntry(int index) {
+        if (index < 0 || index >= numEntries)
+            throw new IndexOutOfBoundsException("index " + index + " out of range [0, " + numEntries + ")");
+
+        VCTMEntry[] nd1 = new VCTMEntry[numEntries - 1];
+        VCTMEntry[] nd2 = new VCTMEntry[numEntries - 1];
+        System.arraycopy(data1, 0, nd1, 0, index);
+        System.arraycopy(data1, index + 1, nd1, index, numEntries - index - 1);
+        System.arraycopy(data2, 0, nd2, 0, index);
+        System.arraycopy(data2, index + 1, nd2, index, numEntries - index - 1);
+        data1 = nd1;
+        data2 = nd2;
+        numEntries--;
+        cachedFrameList = null;
+        recalculateOffsets();
+    }
+
+    /**
+     * Overwrites the keyframe at {@code index} with new time and component values.
+     *
+     * @param index            row to update
+     * @param displayTime      new display-space time
+     * @param componentValues  new component values
+     */
+    public void updateEntry(int index, float displayTime, float[] componentValues) {
+        if (index < 0 || index >= numEntries)
+            throw new IndexOutOfBoundsException("index " + index + " out of range [0, " + numEntries + ")");
+        if (componentValues.length != getComponentCount())
+            throw new IllegalArgumentException("Expected " + getComponentCount() + " components, got " + componentValues.length);
+
+        data1[index] = new VCTMEntry(convertTimeToBytes(displayTime));
+        data2[index] = new VCTMEntry(convertValuesToBytes(componentValues));
+        cachedFrameList = null;
+    }
+
+    // -------------------------------------------------------------------------
+
     @Override
     public int getSize() {
         return 0x20 + Utils.align(data1.length * entrySize, 0x04) + Utils.align(data2.length * coordSize, 0x04);
@@ -533,44 +683,55 @@ public class VCTMPayload extends ResPayload {
     }
     
     
+    /**
+     * Picks the largest TimeScale whose value evenly divides the minimum
+     * interval between consecutive keyframes (expressed in frames at 30fps).
+     * This produces the most compact raw byte values while staying exact.
+     *
+     * @param timeValues  keyframe times in DCC-tool ticks
+     * @param ticks       ticks per second of the DCC tool
+     */
+    public static TimeScale pickTimeScale(float[] timeValues, float ticks) {
+        if (timeValues == null || timeValues.length < 2)
+            return TimeScale.EVERY_1_FRAMES;
+
+        // Convert to frame numbers at 30fps
+        int[] frames = new int[timeValues.length];
+        for (int i = 0; i < timeValues.length; i++)
+            frames[i] = Math.round((timeValues[i] / ticks) * 30.0f);
+
+        // Find the minimum positive interval between consecutive frames
+        int minInterval = Integer.MAX_VALUE;
+        for (int i = 1; i < frames.length; i++) {
+            int interval = frames[i] - frames[i - 1];
+            if (interval > 0)
+                minInterval = Math.min(minInterval, interval);
+        }
+        if (minInterval == Integer.MAX_VALUE)
+            return TimeScale.EVERY_1_FRAMES;
+
+        // Pick the largest TimeScale value where (minInterval * 10) is divisible by
+        // the scale — ensuring rawByte = frame*10/scale is always a whole number.
+        TimeScale[] ordered = {
+            TimeScale.EVERY_30_FRAMES,
+            TimeScale.EVERY_20_FRAMES,
+            TimeScale.EVERY_15_FRAMES,
+            TimeScale.EVERY_12_FRAMES,
+            TimeScale.EVERY_10_FRAMES,
+            TimeScale.EVERY_6_FRAMES,
+            TimeScale.EVERY_5_FRAMES,
+            TimeScale.EVERY_1_FRAMES
+        };
+        for (TimeScale ts : ordered) {
+            if ((minInterval * 10) % Math.round(ts.value) == 0)
+                return ts;
+        }
+        return TimeScale.EVERY_1_FRAMES;
+    }
+
+    // Legacy overload kept for compatibility
     public TimeScale getTimeScale(float[] timeValues) {
-        if (timeValues == null || timeValues.length < 2) {
-            throw new IllegalArgumentException("timeValues array must contain at least two elements.");
-        }
-
-        List<Integer> gameTicks = new ArrayList<>();
-        for (float time : timeValues) {
-        	int tickValue = Math.round(time * 0.33f);  
-            gameTicks.add(tickValue);
-        }
- 
-        List<Integer> intervals = new ArrayList<>();
-        for (int i = 1; i < gameTicks.size(); i++) {
-            int deltaTicks = gameTicks.get(i) - gameTicks.get(i - 1);
-            if (deltaTicks > 0) {
-                intervals.add(deltaTicks);
-            }
-        }
-
-        if (intervals.isEmpty()) {
-            throw new IllegalArgumentException("timeValues array must contain increasing time values.");
-        }
-        int sumIntervals = 0;
-        for (int interval : intervals) {
-            sumIntervals += interval;
-        }
-        int averageInterval = Math.round((float) sumIntervals / intervals.size());
-
-        // Frame-based TimeScale selection
-        if (averageInterval <= 1) return TimeScale.EVERY_1_FRAMES;
-        if (averageInterval <= 5) return TimeScale.EVERY_5_FRAMES;
-        if (averageInterval <= 6) return TimeScale.EVERY_6_FRAMES;
-        if (averageInterval <= 10) return TimeScale.EVERY_10_FRAMES;
-        if (averageInterval <= 12) return TimeScale.EVERY_12_FRAMES;
-        if (averageInterval <= 15) return TimeScale.EVERY_15_FRAMES;
-        if (averageInterval <= 20) return TimeScale.EVERY_20_FRAMES;
-        if (averageInterval <=30 && averageInterval % 30 == 0) return TimeScale.EVERY_30_FRAMES;
-        return TimeScale.EVERY_20_FRAMES; 
+        throw new UnsupportedOperationException("Use pickTimeScale(timeValues, ticks) instead");
     }
 
 

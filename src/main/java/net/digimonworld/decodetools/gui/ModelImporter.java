@@ -605,33 +605,34 @@ public class ModelImporter extends PayloadPanel {
         for (int y : meshOrder) {
         
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(y));
-           int id = getMeshExtra(importedGltfModel, y, "id", Integer.class)
+           int gltfIndex = mesh.mMaterialIndex();
+           int id = getMeshExtra(importedGltfModel, gltfIndex, "id", Integer.class)
                    .orElse(-1); 
            
            meshesById.computeIfAbsent(id, k -> new ArrayList<>()).add(y);
-           final int meshIndex = y; 
+      //    final int meshIndex = y; 
            List<HSEMEntry> hsemEntries =
         	        hsemById.computeIfAbsent(id, k -> new ArrayList<>());
            int shader =
-        		    getMeshExtra(importedGltfModel, y, "shader", Integer.class)
+        		    getMeshExtra(importedGltfModel, gltfIndex, "shader", Integer.class)
         		        .orElse(8);
 
            headerById.computeIfAbsent(id, k ->
-           getMeshExtra(importedGltfModel, meshIndex, "headerData", String.class)
+           getMeshExtra(importedGltfModel, gltfIndex, "headerData", String.class)
                .map(this::parseHeaderData)
                .orElseGet(() -> rootKCAP.getHSEM().get(0).getHeaderData())
        );
            HSEMPayload_unk1.computeIfAbsent(id, k ->
-           getMeshExtra(importedGltfModel, meshIndex, "unk1", Integer.class)
+           getMeshExtra(importedGltfModel, gltfIndex, "unk1", Integer.class)
                .orElse(0) // vanilla default
        );
 
            HSEMPayload_unk2.computeIfAbsent(id, k ->
-           getMeshExtra(importedGltfModel, meshIndex, "unk2", Integer.class)
+           getMeshExtra(importedGltfModel, gltfIndex, "unk2", Integer.class)
                .orElse(0) // vanilla default
        );
            HSEMPayload_unk4.computeIfAbsent(id, k ->
-           getMeshExtra(importedGltfModel, meshIndex, "unk4", Integer.class)
+           getMeshExtra(importedGltfModel, gltfIndex, "unk4", Integer.class)
                .orElse(0) // vanilla default
        );
            
@@ -654,9 +655,9 @@ public class ModelImporter extends PayloadPanel {
         }
                
         	Optional<Short> materialIdOpt =
-        		    getMeshExtra(importedGltfModel, y, "materialId", Short.class);
+        		    getMeshExtra(importedGltfModel, gltfIndex, "materialId", Short.class);
 
-        	Map<Short, Short> texSlots = readTexSlotsFromExtras(importedGltfModel, y);
+        	Map<Short, Short> texSlots = readTexSlotsFromExtras(importedGltfModel, gltfIndex);
 
         		if (materialIdOpt.isPresent()) {
         		    short materialId = materialIdOpt.get();
@@ -673,7 +674,7 @@ public class ModelImporter extends PayloadPanel {
 
              
             AIVector3D.Buffer mVertices = mesh.mVertices();
-            boolean hasNormal =getMeshExtra(importedGltfModel, y, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
+            boolean hasNormal =getMeshExtra(importedGltfModel, gltfIndex, "hasNormal", String.class).map(Boolean::parseBoolean).orElse(false);
           	AIVector3D.Buffer mNormals = (hasNormal ? mesh.mNormals() : null);
             AIVector3D.Buffer tex0Buff = mesh.mTextureCoords(0);
             AIVector3D.Buffer tex1Buff = mesh.mTextureCoords(1);
@@ -795,19 +796,19 @@ public class ModelImporter extends PayloadPanel {
             	prev.putAll(boneMapping);
             
             short culling =
-            	    getMeshExtra(importedGltfModel, y, "hsem_culling", Short.class)
+            	    getMeshExtra(importedGltfModel, gltfIndex, "hsem_culling", Short.class)
             	        .orElse((short) 0x000F); // vanilla default
 
             	byte transparency =
-            	    getMeshExtra(importedGltfModel, y, "hsem_transparency", Byte.class)
+            	    getMeshExtra(importedGltfModel, gltfIndex, "hsem_transparency", Byte.class)
             	        .orElse(blendFlag); // fallback to material-derived
 
             	byte mask =
-            	    getMeshExtra(importedGltfModel, y, "hsem_mask", Byte.class)
+            	    getMeshExtra(importedGltfModel, gltfIndex, "hsem_mask", Byte.class)
             	        .orElse(maskFlag);
 
                    	short unk4 =
-            	    getMeshExtra(importedGltfModel, y, "hsem_unk4", Short.class)
+            	    getMeshExtra(importedGltfModel, gltfIndex, "hsem_unk4", Short.class)
             	        .orElse((short) 0);
 
             	
@@ -1012,7 +1013,7 @@ public class ModelImporter extends PayloadPanel {
         float[] scales = { 1.0f, 1.0f, 1.0f };
 
         AINode currentNode = node;
-        do {
+  do {
             AIVector3D pos = AIVector3D.create();
             AIQuaternion quat = AIQuaternion.create();
             AIVector3D sc = AIVector3D.create();
@@ -1028,13 +1029,18 @@ public class ModelImporter extends PayloadPanel {
         return scales;
     }
 
+    private static String getJointNodeName(AINode node) {
+        if (node == null)
+            return null;
+        return node.mName().dataString();
+    }
     
     @SuppressWarnings("resource")
     private static boolean isJointNode(AINode node) {
         if (node == null)
             return false;
         String name = node.mName().dataString();
-        return name.startsWith("J_") || name.startsWith("AT_");
+     return name.startsWith("J_") || name.startsWith("AT_");
     }
 
     @SuppressWarnings("resource")
@@ -1154,7 +1160,7 @@ public class ModelImporter extends PayloadPanel {
     private static void traverseNodes(AINode node, List<AINode> jointList) {
         if (isJointNode(node)) { 
             jointList.add(node);
-        }
+     }
         for (int i = 0; i < node.mNumChildren(); i++) {
             traverseNodes(AINode.create(node.mChildren().get(i)), jointList);
         }

@@ -251,32 +251,30 @@ public class TDTMKCAP extends AbstractKCAP {
                 }
             }
 
-            float minStartTime = Math.min(
-                Math.min((float) posData.get(0).mTime(), (float) rotData.get(0).mTime()),
-                (float) scaData.get(0).mTime()
-            );
+            float minStartTime = Float.MAX_VALUE;
+            if (!posData.isEmpty()) minStartTime = Math.min(minStartTime, (float) posData.get(0).mTime());
+            if (!rotData.isEmpty()) minStartTime = Math.min(minStartTime, (float) rotData.get(0).mTime());
+            if (!scaData.isEmpty()) minStartTime = Math.min(minStartTime, (float) scaData.get(0).mTime());
 
-            // Step 2: Normalize the keyframe times in duration computation
-            float maxEndTime = Math.max(
-                Math.max((float) posData.get(posData.size() - 1).mTime(), 
-                         (float) rotData.get(rotData.size() - 1).mTime()),
-                (float) scaData.get(scaData.size() - 1).mTime()
-            );
+            float maxEndTime = Float.NEGATIVE_INFINITY;
+            if (!posData.isEmpty()) maxEndTime = Math.max(maxEndTime, (float) posData.get(posData.size()-1).mTime());
+            if (!rotData.isEmpty()) maxEndTime = Math.max(maxEndTime, (float) rotData.get(rotData.size()-1).mTime());
+            if (!scaData.isEmpty()) maxEndTime = Math.max(maxEndTime, (float) scaData.get(scaData.size()-1).mTime());
 
-             float durationInTicks = maxEndTime - minStartTime; // Normalize maxEndTime
+            float durationInTicks = maxEndTime - minStartTime; // Normalize maxEndTime
 
             double ticksPerSecond = animation.mTicksPerSecond();
             float durationInSeconds = (float) (durationInTicks / ticksPerSecond);
 
      
             // Compute the end time in frames (assuming 33.33 ms per frame)
-            endTime = Math.round(durationInSeconds * 33.3333f) * 10.0f; //Using EVERY_10 as Scale for now
+            endTime = Math.round(durationInSeconds * 30.0f) * 10.0f; // 30fps, EVERY_10 scale = *300
 
             time1 = 0;
             time2 = endTime;
             time3 = time1;
             time4 = time2;
-
+            
         }
     }
 
@@ -305,7 +303,7 @@ public class TDTMKCAP extends AbstractKCAP {
             default: name = "anim_" + index; break;
         }
 
-        float animDuration = (time2-time1)/333;
+        float animDuration = (time2 - time1) / 300f; // 30fps * EVERY_10 scale
 
         for (int i = 0; i < tdtmEntry.size(); i++) {
             TDTMEntry tEntry = tdtmEntry.get(i);
@@ -439,8 +437,9 @@ public class TDTMKCAP extends AbstractKCAP {
                         	  timestamps[k] = animDuration * (qstmTimes[k] / duration);
                                    }
                         for (int k = 0; k < timestamps.length; k++) {
-                            if (!times.contains(timestamps[k]) && timestamps[k] <= animDuration) {
-                                times.add(timestamps[k]);
+                            float ts = Math.min(timestamps[k], animDuration);
+                            if (!times.contains(ts)) {
+                                times.add(ts);
                             }
                         }
 
@@ -488,12 +487,12 @@ public class TDTMKCAP extends AbstractKCAP {
                                 }
 
                                 float val = vctmPayload.convertBytesToValue(valBytes);
-
+                                float ts = Math.min(timestamps[k], animDuration);
                                 switch(b+start) {
-                                    case 0: xValues.put(timestamps[k], val); break;
-                                    case 1: yValues.put(timestamps[k], val); break;
-                                    case 2: zValues.put(timestamps[k], val); break;
-                                    case 3: wValues.put(timestamps[k], val); break;
+                                case 0: xValues.put(ts, val); break;
+                                case 1: yValues.put(ts, val); break;
+                                case 2: zValues.put(ts, val); break;
+                                case 3: wValues.put(ts, val); break;
                                 }
                             }
                             
@@ -917,7 +916,7 @@ public class TDTMKCAP extends AbstractKCAP {
     }
     
 
-    enum TDTMMode {
+ public enum TDTMMode {
         TRANSLATION,
         ROTATION,
         SCALE,
