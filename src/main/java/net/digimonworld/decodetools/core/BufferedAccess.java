@@ -103,7 +103,7 @@ public abstract class BufferedAccess implements Access {
     @Override
     public double readDouble() {
         readBuffer(longBuf);
-        return longBuf.getFloat();
+        return longBuf.getDouble();
     }
     
     @Override

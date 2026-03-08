@@ -1099,29 +1099,25 @@ public class ModelImporter extends PayloadPanel {
                     ? jointIndex.getOrDefault(parent.mName().dataString(), -1)
                     : -1;
 
-            Matrix4f matrix = aiMatrix4x4ToMatrix4f(nodes.mTransformation());
-
-            Vector3f translation = new Vector3f();
-            Quaternionf rotation = new Quaternionf();
-            Vector3f jointscale = new Vector3f();
-
-            matrix.getTranslation(translation);
-            matrix.getNormalizedRotation(rotation);
-            rotation.normalize();
-            matrix.getScale(jointscale);
+            AIVector3D aiTranslation = AIVector3D.create();
+            AIQuaternion aiRotation = AIQuaternion.create();
+            AIVector3D aiScale = AIVector3D.create();
+            Assimp.aiDecomposeMatrix(nodes.mTransformation(), aiScale, aiRotation, aiTranslation);
 
             float[] translationArray = {
-                translation.x * scale,
-                translation.y * scale,
-                translation.z * scale,
+                aiTranslation.x() * scale,
+                aiTranslation.y() * scale,
+                aiTranslation.z() * scale,
                 0.0f
             };
 
-          //  float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
-          //  float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
-          
-            float[] rotationArray = {rotation.x, rotation.y, rotation.z, rotation.w};
-           	float[] scaleArray = 	{jointscale.x, jointscale.y, jointscale.z, 0.0f};
+            float[] rotationArray = {aiRotation.x(), aiRotation.y(), aiRotation.z(), aiRotation.w()};
+            float[] scaleArray = {aiScale.x(), aiScale.y(), aiScale.z(), 0.0f};
+            
+            Main.LOGGER.info(String.format("TNOJ Import [%s] Rot: (%.7f, %.7f, %.7f, %.7f) Trans: (%.5f, %.5f, %.5f) Scale: (%.5f, %.5f, %.5f)",
+                name, rotationArray[0], rotationArray[1], rotationArray[2], rotationArray[3],
+                translationArray[0], translationArray[1], translationArray[2],
+                scaleArray[0], scaleArray[1], scaleArray[2]));
             float[] localScaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
             
             Matrix4f inverseBind;
