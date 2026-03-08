@@ -20,8 +20,16 @@ public class HSEMMaterialEntry implements HSEMEntry {
         return materialId;
     }
     
+    public void setMaterialId(short materialId) {
+        this.materialId = materialId;
+    }
+    
     public short getUnkn1() {
         return unkn1;
+    }
+    
+    public void setUnkn1(short unkn1) {
+        this.unkn1 = unkn1;
     }
     
     @Override

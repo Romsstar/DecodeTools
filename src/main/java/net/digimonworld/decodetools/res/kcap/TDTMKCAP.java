@@ -232,13 +232,31 @@ public class TDTMKCAP extends AbstractKCAP {
                 qstmCount++;
             }
             else if (scaData.size() > 0) {
-                if (scaData.size() < 2) {
-                        scaleQSTM = new QSTMPayload(this, scaData.get(0));
-                   qstm.add(scaleQSTM);
-                   tdtmEntry.add(new TDTMEntry(TDTMMode.SCALE, (byte)0x10, jointId, qstmCount));
-                   qstmCount++;
-                   }
-                
+                // Check if all scale keyframes are identity (1,1,1) within epsilon.
+                // DCC tools often export a default scale track even when scale is never
+                // animated — suppress it entirely to keep the file clean.
+                boolean allIdentity = scaData.stream().allMatch(k ->
+                    Math.abs(k.mValue().x() - 1.0f) < 0.001f &&
+                    Math.abs(k.mValue().y() - 1.0f) < 0.001f &&
+                    Math.abs(k.mValue().z() - 1.0f) < 0.001f);
+
+                if (allIdentity) {
+                    // Write a single static QSTM00Entry([1,1,1]) — no VCTM needed.
+                    List<Float> identityScale = new ArrayList<>();
+                    identityScale.add(1.0f);
+                    identityScale.add(1.0f);
+                    identityScale.add(1.0f);
+                    scaleQSTM = new QSTMPayload(this, identityScale);
+                    qstm.add(scaleQSTM);
+                    tdtmEntry.add(new TDTMEntry(TDTMMode.SCALE, (byte)0x10, jointId, qstmCount));
+                    qstmCount++;
+                }
+                else if (scaData.size() < 2) {
+                    scaleQSTM = new QSTMPayload(this, scaData.get(0));
+                    qstm.add(scaleQSTM);
+                    tdtmEntry.add(new TDTMEntry(TDTMMode.SCALE, (byte)0x10, jointId, qstmCount));
+                    qstmCount++;
+                }
                 else {
                     scaleQSTM = new QSTMPayload(this, vctmCount);
                     qstm.add(scaleQSTM);
@@ -916,7 +934,7 @@ public class TDTMKCAP extends AbstractKCAP {
     }
     
 
- public enum TDTMMode {
+   public enum TDTMMode {
         TRANSLATION,
         ROTATION,
         SCALE,

@@ -88,9 +88,76 @@ public class VCTMPanel extends PayloadPanel {
             }
         };
 
-        entryTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        entryTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         // Commit (not cancel) the active edit when focus leaves the table.
         entryTable.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
+
+        // Right-click context menu for copying cell/row values.
+        JPopupMenu copyMenu = new JPopupMenu();
+        JMenuItem copyCell  = new JMenuItem("Copy Cell");
+        JMenuItem copyRow   = new JMenuItem("Copy Row");
+        JMenuItem selectAll = new JMenuItem("Select All");
+        copyMenu.add(copyCell);
+        copyMenu.add(copyRow);
+        copyMenu.addSeparator();
+        copyMenu.add(selectAll);
+
+        selectAll.addActionListener(e -> selectAllRows());
+
+        // Also bind Ctrl+A
+        entryTable.getInputMap(JComponent.WHEN_FOCUSED)
+            .put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_A,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK), "selectAll");
+        entryTable.getActionMap().put("selectAll",
+            new javax.swing.AbstractAction() {
+                @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                    selectAllRows();
+                }
+            });
+
+        copyCell.addActionListener(e -> {
+            int row = entryTable.getSelectedRow();
+            int col = entryTable.getSelectedColumn();
+            if (row < 0 || col < 0) return;
+            Object val = tableModel.getValueAt(row, col);
+            copyToClipboard(val == null ? "" : val.toString());
+        });
+
+        copyRow.addActionListener(e -> {
+            int[] rows = entryTable.getSelectedRows();
+            if (rows.length == 0) return;
+            StringBuilder sb = new StringBuilder();
+            for (int row : rows) {
+                for (int c = 0; c < tableModel.getColumnCount(); c++) {
+                    if (c > 0) sb.append('\t');
+                    Object val = tableModel.getValueAt(row, c);
+                    sb.append(val == null ? "" : val.toString());
+                }
+                sb.append('\n');
+            }
+            copyToClipboard(sb.toString().stripTrailing());
+        });
+
+        entryTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                handlePopup(e);
+            }
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                handlePopup(e);
+            }
+            private void handlePopup(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                // Select the row under the cursor before showing the menu.
+                int row = entryTable.rowAtPoint(e.getPoint());
+                int col = entryTable.columnAtPoint(e.getPoint());
+                if (row >= 0) entryTable.setRowSelectionInterval(row, row);
+                if (col >= 0) entryTable.setColumnSelectionInterval(col, col);
+                copyMenu.show(entryTable, e.getX(), e.getY());
+            }
+        });
+
         JScrollPane tableScrollPane = new JScrollPane(entryTable);
 
         lblJointInfo.setFont(lblJointInfo.getFont().deriveFont(Font.BOLD));
@@ -282,14 +349,17 @@ public class VCTMPanel extends PayloadPanel {
     // Joint resolution
     // -------------------------------------------------------------------------
 
-    private String resolveJointInfo() {
-        if (vctm == null) return " ";
+    /**
+     * Returns a filesystem-safe label for this VCTM such as "J_foot_l[ROTATION]",
+     * falling back to "vctm_<index>" if the joint cannot be resolved.
+     */
+    static String resolveJointLabel(VCTMPayload vctm) {
         try {
             ResPayload vctmKcapRaw = vctm.getParent();
-            if (!(vctmKcapRaw instanceof AbstractKCAP)) return "Joint: (unknown)";
+            if (!(vctmKcapRaw instanceof AbstractKCAP)) return null;
 
             ResPayload tdtmRaw = ((AbstractKCAP) vctmKcapRaw).getParent();
-            if (!(tdtmRaw instanceof TDTMKCAP)) return "Joint: (unknown)";
+            if (!(tdtmRaw instanceof TDTMKCAP)) return null;
 
             TDTMKCAP tdtm = (TDTMKCAP) tdtmRaw;
 
@@ -298,7 +368,7 @@ public class VCTMPanel extends PayloadPanel {
             for (int i = 0; i < vctmList.size(); i++) {
                 if (vctmList.get(i) == vctm) { vctmIndex = i; break; }
             }
-            if (vctmIndex == -1) return "Joint: (not referenced)";
+            if (vctmIndex == -1) return null;
 
             List<QSTMPayload> qstmList = tdtm.getQstmEntries();
             int matchedQstmId = -1;
@@ -312,30 +382,43 @@ public class VCTMPanel extends PayloadPanel {
                 }
                 if (matchedQstmId != -1) break;
             }
-            if (matchedQstmId == -1) return "Joint: (no QSTM reference found)";
+            if (matchedQstmId == -1) return null;
 
             List<TDTMEntry> tdtmEntries = tdtm.getTdtmEntries();
             TDTMEntry matched = null;
             for (TDTMEntry te : tdtmEntries) {
                 if (te.getqstmId() == matchedQstmId) { matched = te; break; }
             }
-            if (matched == null) return "Joint: (no TDTM entry found)";
+            if (matched == null) return null;
 
-            int jointId   = matched.getjointId();
-            String mode   = matched.getMode().name();
-            String jname  = resolveJointName(tdtm, jointId);
+            int jointId  = matched.getjointId();
+            String mode  = matched.getMode().name();
+            String jname = resolveJointName(tdtm, jointId);
 
-            return jname != null
-                ? String.format("Joint: %s (ID: %d)  |  Transform: %s", jname, jointId, mode)
-                : String.format("Joint ID: %d  |  Transform: %s", jointId, mode);
+            String base = jname != null ? jname : ("joint_" + jointId);
+            // Strip characters that are invalid in filenames
+            return (base + "[" + mode + "]").replaceAll("[\\\\/:*?\"<>|]", "_");
 
         } catch (Exception ex) {
-            Main.LOGGER.warning("VCTMPanel: could not resolve joint info: " + ex.getMessage());
-            return "Joint: (error resolving)";
+            return null;
         }
     }
 
-    private String resolveJointName(TDTMKCAP tdtm, int jointId) {
+    private String resolveJointInfo() {
+        if (vctm == null) return " ";
+        String label = resolveJointLabel(vctm);
+        if (label == null) return "Joint: (unknown)";
+        // Turn "J_foot_l[ROTATION]" back into a readable display string
+        int bracket = label.indexOf('[');
+        if (bracket >= 0) {
+            String name = label.substring(0, bracket);
+            String mode = label.substring(bracket + 1, label.length() - 1);
+            return "Joint: " + name + "  |  Transform: " + mode;
+        }
+        return "Joint: " + label;
+    }
+
+    private static String resolveJointName(TDTMKCAP tdtm, int jointId) {
         try {
             ResPayload topRaw = tdtm.getParent();
             if (!(topRaw instanceof NormalKCAP)) return null;
@@ -387,7 +470,7 @@ public class VCTMPanel extends PayloadPanel {
         }
     }
 
-    private static String decodeComponent(byte[] bytes, String compType) {
+    static String decodeComponent(byte[] bytes, String compType) {
         switch (compType) {
             case "FLOAT16": {
                 short bits = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getShort();
@@ -420,6 +503,18 @@ public class VCTMPanel extends PayloadPanel {
 
     /** Safely reads a cell value as a float regardless of whether it is stored
      *  as a String, Number, or other Object. */
+    private void selectAllRows() {
+        if (tableModel.getRowCount() > 0)
+            entryTable.setRowSelectionInterval(0, tableModel.getRowCount() - 1);
+    }
+
+    private static void copyToClipboard(String text) {
+        java.awt.datatransfer.StringSelection sel =
+            new java.awt.datatransfer.StringSelection(text);
+        java.awt.Toolkit.getDefaultToolkit()
+            .getSystemClipboard().setContents(sel, sel);
+    }
+
     private static float parseFloat(Object o) {
         if (o == null) return 0f;
         if (o instanceof Number) return ((Number) o).floatValue();

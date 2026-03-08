@@ -601,11 +601,24 @@ public class ModelImporter extends PayloadPanel {
                 return parseMeshNumber(mesh.mName().dataString());
             }).thenComparingInt(i -> i) // stable fallback
         );
+        Map<String, Integer> gltfMeshIndexByName = new HashMap<>();
+        for (int m = 0; m < importedGltfModel.getMeshModels().size(); m++) {
+            String name = importedGltfModel.getMeshModels().get(m).getName();
+            if (name != null) {
+                gltfMeshIndexByName.put(name, m);
+            }
+        }
+
         int i = 0;
         for (int y : meshOrder) {
         
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(y));
-           int gltfIndex = mesh.mMaterialIndex();
+           String meshName = mesh.mName().dataString();
+           String baseName = meshName.contains(".")
+               ? meshName.substring(0, meshName.lastIndexOf('.'))
+               : meshName;
+           int gltfIndex = gltfMeshIndexByName.getOrDefault(baseName,
+               gltfMeshIndexByName.getOrDefault(meshName, -1));
            int id = getMeshExtra(importedGltfModel, gltfIndex, "id", Integer.class)
                    .orElse(-1); 
            
@@ -1104,8 +1117,11 @@ public class ModelImporter extends PayloadPanel {
                 0.0f
             };
 
-            float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
-            float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
+          //  float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
+          //  float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
+          
+            float[] rotationArray = {rotation.x, rotation.y, rotation.z, rotation.w};
+           	float[] scaleArray = 	{jointscale.x, jointscale.y, jointscale.z, 0.0f};
             float[] localScaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
             
             Matrix4f inverseBind;

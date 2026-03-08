@@ -5,6 +5,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Observable;
 
@@ -41,6 +43,7 @@ public class KCAPPanel extends EditorPanel {
 
     private JMenuItem exportItem = new JMenuItem("Export");
     private JMenuItem refeshItem = new JMenuItem("Refresh");
+    private JMenuItem exportVctmCsvItem = new JMenuItem("Export VCTMs as CSV");
     
     private Map<Enum<?>, PayloadPanel> panels = PayloadPanel.generatePayloadPanels();
     private final JPanel panel = new JPanel();
@@ -51,6 +54,81 @@ public class KCAPPanel extends EditorPanel {
         popupMenu.add(importKcapItem);
         popupMenu.add(exportItem);
         popupMenu.add(refeshItem);
+        popupMenu.addSeparator();
+        popupMenu.add(exportVctmCsvItem);
+
+        exportVctmCsvItem.setAction(new FunctionAction("Export VCTMs as CSV", a -> {
+            if (tree.getSelectionPath() == null ||
+                !(tree.getSelectionPath().getLastPathComponent() instanceof ResPayloadTreeNode))
+                return;
+
+            JFileChooser chooser = new JFileChooser("./");
+            chooser.setDialogTitle("Select output folder for VCTM CSV files");
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION)
+                return;
+
+            File outputDir = chooser.getSelectedFile();
+            if (outputDir == null) return;
+            outputDir.mkdirs();
+
+            ResPayloadTreeNode node =
+                (ResPayloadTreeNode) tree.getSelectionPath().getLastPathComponent();
+
+            // Collect all VCTMPayloads under the selected node, tagged with their
+            // index within their parent KCAP.
+            List<int[]> ids = new ArrayList<>();
+            List<net.digimonworld.decodetools.res.payload.VCTMPayload> found = new ArrayList<>();
+            collectVctms(node.getPayload(), found, ids);
+
+            if (found.isEmpty()) {
+                javax.swing.JOptionPane.showMessageDialog(null,
+                    "No VCTM payloads found under the selected node.",
+                    "Export VCTMs", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            int exported = 0;
+            for (int i = 0; i < found.size(); i++) {
+                net.digimonworld.decodetools.res.payload.VCTMPayload vctm = found.get(i);
+                int idx = ids.get(i)[0];
+
+                String label = VCTMPanel.resolveJointLabel(vctm);
+                if (label == null) label = "vctm_" + idx;
+
+                File csv = new File(outputDir, label + ".csv");
+                try (java.io.PrintWriter pw = new java.io.PrintWriter(
+                        new java.io.FileWriter(csv))) {
+                    pw.println("Frame Index,Time,Time Scale,Component Count," +
+                               "Component Type,Interpolation,X,Y,Z,W");
+                    float[] times  = vctm.getFrameTimes();
+                    int compCount  = vctm.getComponentCount();
+                    String ctype   = vctm.getComponentType().toString();
+                    String interp  = vctm.getInterpolationMode().toString();
+                    String scale   = vctm.getTimeScale().toString();
+                    for (int f = 0; f < times.length; f++) {
+                        Byte[][] raw = vctm.getRawFrameData(f);
+                        String[] comp = {"", "", "", ""};
+                        for (int c = 0; c < compCount; c++) {
+                            byte[] bytes = new byte[raw[c].length];
+                            for (int b = 0; b < bytes.length; b++) bytes[b] = raw[c][b];
+                            comp[c] = VCTMPanel.decodeComponent(bytes, ctype);
+                        }
+                        pw.printf(java.util.Locale.ROOT,
+                            "%d,%.6f,%s,%d,%s,%s,%s,%s,%s,%s%n",
+                            f, times[f], scale, compCount, ctype, interp,
+                            comp[0], comp[1], comp[2], comp[3]);
+                    }
+                    exported++;
+                } catch (IOException ex) {
+                    Main.LOGGER.severe("Failed to write " + csv.getName() + ": " + ex.getMessage());
+                }
+            }
+
+            javax.swing.JOptionPane.showMessageDialog(null,
+                "Exported " + exported + " VCTM file(s) to " + outputDir.getPath(),
+                "Export VCTMs", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+        }));
         
         importKcapItem.setAction(new FunctionAction("Import KCAP", a -> {
             if (tree.getSelectionPath() == null ||
@@ -198,6 +276,39 @@ public class KCAPPanel extends EditorPanel {
         setLayout(groupLayout);
     }
     
+    /**
+     * Recursively walks the payload tree rooted at {@code payload}, collecting
+     * every VCTMPayload into {@code result}. {@code ids} receives a single-element
+     * int[] per entry containing the payload's index inside its parent KCAP.
+     */
+    private static void collectVctms(
+            Object payload,
+            List<net.digimonworld.decodetools.res.payload.VCTMPayload> result,
+            List<int[]> ids) {
+
+        if (payload instanceof net.digimonworld.decodetools.res.payload.VCTMPayload) {
+            // ID = position in parent's entry list (best-effort; -1 if unresolvable)
+            net.digimonworld.decodetools.res.payload.VCTMPayload vctm =
+                (net.digimonworld.decodetools.res.payload.VCTMPayload) payload;
+            int idx = -1;
+            if (vctm.getParent() != null) {
+                List<ResPayload> siblings = vctm.getParent().getEntries();
+                idx = siblings.indexOf(vctm);
+            }
+            result.add(vctm);
+            ids.add(new int[]{ idx });
+            return;
+        }
+
+        if (payload instanceof AbstractKCAP) {
+            List<ResPayload> entries = ((AbstractKCAP) payload).getEntries();
+            for (ResPayload child : entries) {
+                if (child != null)
+                    collectVctms(child, result, ids);
+            }
+        }
+    }
+
     @Override
     public void update(Observable o, Object arg) {
         if (tree.getModel() != getModel().getTreeModel())

@@ -151,7 +151,12 @@ public class VCTMPayload extends ResPayload {
             byte[] allBytes = {xBytes[0], xBytes[1], yBytes[0], yBytes[1], zBytes[0], zBytes[1] };
 
             data2[i] = new VCTMEntry(allBytes);            
-             }            
+             }       
+        	
+        //Match first+last frame
+        	//if (numEntries > 1) {
+           // data2[numEntries - 1] = new VCTMEntry(data2[0].getData().clone());
+        	//}
     		}
 
     
@@ -227,6 +232,10 @@ public class VCTMPayload extends ResPayload {
      
             data2[i] = new VCTMEntry(allBytes);
         }
+        //Match first+last frame
+    	//if (numEntries > 1) {
+        //data2[numEntries - 1] = new VCTMEntry(data2[0].getData().clone());
+    	//}
     }
 
 

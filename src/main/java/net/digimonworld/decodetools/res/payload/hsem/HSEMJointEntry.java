@@ -2,6 +2,7 @@ package net.digimonworld.decodetools.res.payload.hsem;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 import net.digimonworld.decodetools.core.Access;
 
@@ -9,7 +10,7 @@ public class HSEMJointEntry implements HSEMEntry {
     private short unkn1;
     // short jointCount
     
-    private Map<Short, Short> jointAssignment = new HashMap<>();
+    private Map<Short, Short> jointAssignment = new TreeMap<>();
     
     public HSEMJointEntry(Map<Short, Short> assignment) {
         unkn1 = 0;
