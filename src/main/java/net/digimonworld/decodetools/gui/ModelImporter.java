@@ -1099,25 +1099,29 @@ public class ModelImporter extends PayloadPanel {
                     ? jointIndex.getOrDefault(parent.mName().dataString(), -1)
                     : -1;
 
-            AIVector3D aiTranslation = AIVector3D.create();
-            AIQuaternion aiRotation = AIQuaternion.create();
-            AIVector3D aiScale = AIVector3D.create();
-            Assimp.aiDecomposeMatrix(nodes.mTransformation(), aiScale, aiRotation, aiTranslation);
+            Matrix4f matrix = aiMatrix4x4ToMatrix4f(nodes.mTransformation());
+
+            Vector3f translation = new Vector3f();
+            Quaternionf rotation = new Quaternionf();
+            Vector3f jointscale = new Vector3f();
+
+            matrix.getTranslation(translation);
+            matrix.getNormalizedRotation(rotation);
+            rotation.normalize();
+            matrix.getScale(jointscale);
 
             float[] translationArray = {
-                aiTranslation.x() * scale,
-                aiTranslation.y() * scale,
-                aiTranslation.z() * scale,
+                translation.x * scale,
+                -translation.z * scale,
+                translation.y * scale,
                 0.0f
             };
 
-            float[] rotationArray = {aiRotation.x(), aiRotation.y(), aiRotation.z(), aiRotation.w()};
-            float[] scaleArray = {aiScale.x(), aiScale.y(), aiScale.z(), 0.0f};
-            
-            Main.LOGGER.info(String.format("TNOJ Import [%s] Rot: (%.7f, %.7f, %.7f, %.7f) Trans: (%.5f, %.5f, %.5f) Scale: (%.5f, %.5f, %.5f)",
-                name, rotationArray[0], rotationArray[1], rotationArray[2], rotationArray[3],
-                translationArray[0], translationArray[1], translationArray[2],
-                scaleArray[0], scaleArray[1], scaleArray[2]));
+            float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
+            float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
+          
+            //float[] rotationArray = {rotation.x, rotation.y, rotation.z, rotation.w};
+           	//float[] scaleArray = 	{jointscale.x, jointscale.y, jointscale.z, 0.0f};
             float[] localScaleVector = { 1.0f, 1.0f, 1.0f, 0.0f };
             
             Matrix4f inverseBind;
@@ -1130,8 +1134,8 @@ public class ModelImporter extends PayloadPanel {
                 inverseBind = computeGlobalTransform(nodes).invert();
             }
 
-            float[] ibpm = matrixToArray(transposeMatrix(inverseBind));
-
+          //  float[] ibpm = matrixToArray(transposeMatrix(inverseBind));
+            float[] ibpm = convertMatrixYUpToZUp(matrixToArray(transposeMatrix(inverseBind)));
             tnojList.add(new TNOJPayload(
                 null,
                 parentId,
@@ -1149,6 +1153,14 @@ public class ModelImporter extends PayloadPanel {
         return tnojList;
     }
 
+    private static float[] convertMatrixYUpToZUp(float[] m) {
+        float[] r = new float[16];
+        r[0]  = m[0];   r[1]  = -m[2];  r[2]  = m[1];   r[3]  = m[3];
+        r[4]  = m[4];   r[5]  = -m[6];  r[6]  = m[5];   r[7]  = m[7];
+        r[8]  = m[8];   r[9]  = -m[10]; r[10] = m[9];   r[11] = m[11];
+        r[12] = m[12];  r[13] = -m[14]; r[14] = m[13];  r[15] = m[15];
+        return r;
+    }
     
     private Optional<AIBone> findBoneByName(AIScene scene, String name) {
         for (int i = 0; i < scene.mNumMeshes(); i++) {
