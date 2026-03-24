@@ -5,7 +5,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
@@ -13,6 +13,7 @@ import java.util.Observable;
 import javax.swing.GroupLayout;
 import javax.swing.GroupLayout.Alignment;
 import javax.swing.JFileChooser;
+import javax.swing.JOptionPane;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
@@ -42,8 +43,8 @@ public class KCAPPanel extends EditorPanel {
     private JMenuItem importKcapItem = new JMenuItem("Import KCAP");
 
     private JMenuItem exportItem = new JMenuItem("Export");
+    private JMenuItem removeChildItem = new JMenuItem("Remove Child");
     private JMenuItem refeshItem = new JMenuItem("Refresh");
-    private JMenuItem exportVctmCsvItem = new JMenuItem("Export VCTMs as CSV");
     
     private Map<Enum<?>, PayloadPanel> panels = PayloadPanel.generatePayloadPanels();
     private final JPanel panel = new JPanel();
@@ -52,83 +53,9 @@ public class KCAPPanel extends EditorPanel {
     public KCAPPanel(EditorModel model) {
         super(model);
         popupMenu.add(importKcapItem);
+        popupMenu.add(removeChildItem);
         popupMenu.add(exportItem);
         popupMenu.add(refeshItem);
-        popupMenu.addSeparator();
-        popupMenu.add(exportVctmCsvItem);
-
-        exportVctmCsvItem.setAction(new FunctionAction("Export VCTMs as CSV", a -> {
-            if (tree.getSelectionPath() == null ||
-                !(tree.getSelectionPath().getLastPathComponent() instanceof ResPayloadTreeNode))
-                return;
-
-            JFileChooser chooser = new JFileChooser("./");
-            chooser.setDialogTitle("Select output folder for VCTM CSV files");
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION)
-                return;
-
-            File outputDir = chooser.getSelectedFile();
-            if (outputDir == null) return;
-            outputDir.mkdirs();
-
-            ResPayloadTreeNode node =
-                (ResPayloadTreeNode) tree.getSelectionPath().getLastPathComponent();
-
-            // Collect all VCTMPayloads under the selected node, tagged with their
-            // index within their parent KCAP.
-            List<int[]> ids = new ArrayList<>();
-            List<net.digimonworld.decodetools.res.payload.VCTMPayload> found = new ArrayList<>();
-            collectVctms(node.getPayload(), found, ids);
-
-            if (found.isEmpty()) {
-                javax.swing.JOptionPane.showMessageDialog(null,
-                    "No VCTM payloads found under the selected node.",
-                    "Export VCTMs", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            int exported = 0;
-            for (int i = 0; i < found.size(); i++) {
-                net.digimonworld.decodetools.res.payload.VCTMPayload vctm = found.get(i);
-                int idx = ids.get(i)[0];
-
-                String label = VCTMPanel.resolveJointLabel(vctm);
-                if (label == null) label = "vctm_" + idx;
-
-                File csv = new File(outputDir, label + ".csv");
-                try (java.io.PrintWriter pw = new java.io.PrintWriter(
-                        new java.io.FileWriter(csv))) {
-                    pw.println("Frame Index,Time,Time Scale,Component Count," +
-                               "Component Type,Interpolation,X,Y,Z,W");
-                    float[] times  = vctm.getFrameTimes();
-                    int compCount  = vctm.getComponentCount();
-                    String ctype   = vctm.getComponentType().toString();
-                    String interp  = vctm.getInterpolationMode().toString();
-                    String scale   = vctm.getTimeScale().toString();
-                    for (int f = 0; f < times.length; f++) {
-                        Byte[][] raw = vctm.getRawFrameData(f);
-                        String[] comp = {"", "", "", ""};
-                        for (int c = 0; c < compCount; c++) {
-                            byte[] bytes = new byte[raw[c].length];
-                            for (int b = 0; b < bytes.length; b++) bytes[b] = raw[c][b];
-                            comp[c] = VCTMPanel.decodeComponent(bytes, ctype);
-                        }
-                        pw.printf(java.util.Locale.ROOT,
-                            "%d,%.6f,%s,%d,%s,%s,%s,%s,%s,%s%n",
-                            f, times[f], scale, compCount, ctype, interp,
-                            comp[0], comp[1], comp[2], comp[3]);
-                    }
-                    exported++;
-                } catch (IOException ex) {
-                    Main.LOGGER.severe("Failed to write " + csv.getName() + ": " + ex.getMessage());
-                }
-            }
-
-            javax.swing.JOptionPane.showMessageDialog(null,
-                "Exported " + exported + " VCTM file(s) to " + outputDir.getPath(),
-                "Export VCTMs", javax.swing.JOptionPane.INFORMATION_MESSAGE);
-        }));
         
         importKcapItem.setAction(new FunctionAction("Import KCAP", a -> {
             if (tree.getSelectionPath() == null ||
@@ -170,12 +97,8 @@ public class KCAPPanel extends EditorPanel {
 
                 AbstractKCAP parent = (AbstractKCAP) parentObj;
 
-                // Find the child index and replace it in place
-                int idx = parent.getEntries().indexOf(selected);
-                if (idx < 0) return;
-
-                newKcap.setParent(parent);               // keep the tree consistent
-                parent.getEntries().set(idx, newKcap);   // NormalKCAP etc. allow this
+                if (!replaceChild(parent, (ResPayload) selected, newKcap))
+                    return;
 
                 // No manual offset math needed: writers recompute sizes/offsets on export
                 getModel().update();
@@ -185,6 +108,30 @@ public class KCAPPanel extends EditorPanel {
             }
         }));
         
+        removeChildItem.setAction(new FunctionAction("Remove Child", a -> {
+            if (tree.getSelectionPath() == null ||
+                !(tree.getSelectionPath().getLastPathComponent() instanceof ResPayloadTreeNode))
+                return;
+
+            ResPayloadTreeNode node = (ResPayloadTreeNode) tree.getSelectionPath().getLastPathComponent();
+            if (!(node.getPayload() instanceof ResPayload))
+                return;
+
+            ResPayloadTreeNode parentNode = (ResPayloadTreeNode) node.getParent();
+            if (parentNode == null || !(parentNode.getPayload() instanceof AbstractKCAP))
+                return;
+
+            if (JOptionPane.showConfirmDialog(this,
+                    "Remove the selected child from its parent KCAP?",
+                    "Remove child",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION)
+                return;
+
+            if (removeChild((AbstractKCAP) parentNode.getPayload(), (ResPayload) node.getPayload()))
+                getModel().update();
+        }));
+
         refeshItem.setAction(new FunctionAction("Refresh", e -> getModel().update()));
         
         exportItem.setAction(new FunctionAction("Export", a -> {
@@ -276,37 +223,146 @@ public class KCAPPanel extends EditorPanel {
         setLayout(groupLayout);
     }
     
-    /**
-     * Recursively walks the payload tree rooted at {@code payload}, collecting
-     * every VCTMPayload into {@code result}. {@code ids} receives a single-element
-     * int[] per entry containing the payload's index inside its parent KCAP.
-     */
-    private static void collectVctms(
-            Object payload,
-            List<net.digimonworld.decodetools.res.payload.VCTMPayload> result,
-            List<int[]> ids) {
+    private boolean replaceChild(AbstractKCAP parent, ResPayload selected, ResPayload replacement) {
+        AbstractKCAP target = resolveMutationTarget(parent);
+        if (target == null || selected == null || replacement == null)
+            return false;
 
-        if (payload instanceof net.digimonworld.decodetools.res.payload.VCTMPayload) {
-            // ID = position in parent's entry list (best-effort; -1 if unresolvable)
-            net.digimonworld.decodetools.res.payload.VCTMPayload vctm =
-                (net.digimonworld.decodetools.res.payload.VCTMPayload) payload;
-            int idx = -1;
-            if (vctm.getParent() != null) {
-                List<ResPayload> siblings = vctm.getParent().getEntries();
-                idx = siblings.indexOf(vctm);
+        if (replaceListChild(target, selected, replacement))
+            return true;
+
+        return replaceDirectChild(target, selected, replacement);
+    }
+
+    private boolean removeChild(AbstractKCAP parent, ResPayload selected) {
+        AbstractKCAP target = resolveMutationTarget(parent);
+        if (target == null || selected == null)
+            return false;
+
+        if (removeListChild(target, selected))
+            return true;
+
+        return clearDirectChild(target, selected);
+    }
+
+    private AbstractKCAP resolveMutationTarget(AbstractKCAP parent) {
+        if (parent != null && parent.getClass().getSimpleName().equals("NormalKCAP")
+                && parent.getParent() != null
+                && parent.getParent().getClass().getSimpleName().equals("TDTMKCAP"))
+            return parent.getParent();
+
+        return parent;
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    private boolean replaceListChild(AbstractKCAP parent, ResPayload selected, ResPayload replacement) {
+        for (Field field : getFields(parent.getClass())) {
+            if (!List.class.isAssignableFrom(field.getType()))
+                continue;
+
+            try {
+                field.setAccessible(true);
+                List list = (List) field.get(parent);
+                if (list == null)
+                    continue;
+
+                int idx = list.indexOf(selected);
+                if (idx < 0)
+                    continue;
+
+                if (!selected.getClass().isInstance(replacement))
+                    return false;
+
+                replacement.setParent(parent);
+                list.set(idx, replacement);
+                return true;
             }
-            result.add(vctm);
-            ids.add(new int[]{ idx });
-            return;
+            catch (IllegalAccessException | UnsupportedOperationException ex) {
+                Main.LOGGER.severe("Could not replace KCAP child: " + ex.getMessage());
+                return false;
+            }
         }
 
-        if (payload instanceof AbstractKCAP) {
-            List<ResPayload> entries = ((AbstractKCAP) payload).getEntries();
-            for (ResPayload child : entries) {
-                if (child != null)
-                    collectVctms(child, result, ids);
+        return false;
+    }
+
+    private boolean removeListChild(AbstractKCAP parent, ResPayload selected) {
+        for (Field field : getFields(parent.getClass())) {
+            if (!List.class.isAssignableFrom(field.getType()))
+                continue;
+
+            try {
+                field.setAccessible(true);
+                @SuppressWarnings("rawtypes")
+                List list = (List) field.get(parent);
+                if (list != null && list.remove(selected))
+                    return true;
+            }
+            catch (IllegalAccessException | UnsupportedOperationException ex) {
+                Main.LOGGER.severe("Could not remove KCAP child: " + ex.getMessage());
+                return false;
             }
         }
+
+        return false;
+    }
+
+    private boolean replaceDirectChild(AbstractKCAP parent, ResPayload selected, ResPayload replacement) {
+        for (Field field : getFields(parent.getClass())) {
+            if (!ResPayload.class.isAssignableFrom(field.getType()))
+                continue;
+
+            try {
+                field.setAccessible(true);
+                Object current = field.get(parent);
+                if (current != selected)
+                    continue;
+
+                if (!field.getType().isInstance(replacement))
+                    return false;
+
+                replacement.setParent(parent);
+                field.set(parent, replacement);
+                return true;
+            }
+            catch (IllegalAccessException ex) {
+                Main.LOGGER.severe("Could not replace KCAP child field: " + ex.getMessage());
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean clearDirectChild(AbstractKCAP parent, ResPayload selected) {
+        for (Field field : getFields(parent.getClass())) {
+            if (!ResPayload.class.isAssignableFrom(field.getType()))
+                continue;
+
+            try {
+                field.setAccessible(true);
+                if (field.get(parent) != selected)
+                    continue;
+
+                field.set(parent, null);
+                return true;
+            }
+            catch (IllegalAccessException ex) {
+                Main.LOGGER.severe("Could not clear KCAP child field: " + ex.getMessage());
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private List<Field> getFields(Class<?> type) {
+        java.util.ArrayList<Field> fields = new java.util.ArrayList<>();
+
+        for (Class<?> current = type; current != null; current = current.getSuperclass())
+            fields.addAll(java.util.Arrays.asList(current.getDeclaredFields()));
+
+        return fields;
     }
 
     @Override

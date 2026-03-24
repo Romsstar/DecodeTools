@@ -890,7 +890,7 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
             rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
-            loadAnimations();
+         //   loadAnimations();
         }
     }
 
@@ -1117,7 +1117,19 @@ public class ModelImporter extends PayloadPanel {
                 0.0f
             };
 
-            float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
+            //float[] rotationArray = {0.0f, 0.0f, 0.0f, 1.0f};
+            
+            Quaternionf rot = new Quaternionf(rotation.x, rotation.y, rotation.z, rotation.w);
+            // 90° rotation quaternion component
+            Quaternionf stripConv = new Quaternionf((float)(Math.sqrt(2.0) / 2.0), 0, 0, (float)(Math.sqrt(2.0) / 2.0));
+            rot.mul(stripConv);
+            float[] rotationArray = {
+                Math.abs(rot.x) < 1e-5f ? 0.0f : rot.x,
+                Math.abs(rot.y) < 1e-5f ? 0.0f : rot.y,
+                Math.abs(rot.z) < 1e-5f ? 0.0f : rot.z,
+                Math.abs(rot.w) < 1e-5f ? 0.0f : rot.w
+            };
+         
             float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
           
             //float[] rotationArray = {rotation.x, rotation.y, rotation.z, rotation.w};

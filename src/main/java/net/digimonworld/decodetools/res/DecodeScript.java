@@ -73,16 +73,7 @@ public class DecodeScript {
 	        Map<Integer, BasicBlock> blocks,
 	        int rawTarget
 	) {
-	    int best = Integer.MAX_VALUE;
-	    BasicBlock result = null;
-
-	    for (BasicBlock bb : blocks.values()) {
-	        if (bb.startOffset >= rawTarget && bb.startOffset < best) {
-	            best = bb.startOffset;
-	            result = bb;
-	        }
-	    }
-	    return result;
+	    return blocks.get(rawTarget);
 	}
 
 	static final Map<Integer, NativeSignature> nativeSigs = new HashMap<>();
@@ -586,9 +577,17 @@ public class DecodeScript {
                 case JNZ32:
                 	int raw = resolveJumpTarget(di);
                 	int canon = canonicalTargetOffset(instructions, raw);
-                	if (canon != -1) blockStarts.add(canon);
 
-
+                	if (canon != -1) {
+                	    blockStarts.add(canon);
+                	} else {
+                	    System.out.printf(
+                	        "Ignoring non-instruction jump target 0x%X from 0x%X (%s)%n",
+                	        raw,
+                	        di.offset,
+                	        di.opcode.name()
+                	    );
+                	}
                     // conditional jumps also have fallthrough
                     if (di.opcode != Instruction.J32 && di.opcode != Instruction.J8) {
                         blockStarts.add(di.offset + di.size);
@@ -877,7 +876,7 @@ public class DecodeScript {
 
     	        case EQZ: {
     	            IRTemp t = newTemp();
-    	            bb.ir.add(new IRAssign(t, "EQZ", acc != null ? acc : popOrArg(bb, stack), null));
+    	            bb.ir.add(new IRAssign(t, "!", acc != null ? acc : popOrArg(bb, stack), null));
     	            acc = t;
     	            break;
     	        }
@@ -1381,8 +1380,8 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
                 }
 
                 out.println("  ; lifted IR");
-                for (IRInstr ir : bb.ir) {
-                    out.println("  " + formatIR(ir));
+                for (String line : formatBlockIR(bb)) {
+                    out.println("  " + line);
                 }
 
                 out.println();
@@ -1398,89 +1397,207 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
     }
 
 
-    static String formatIR(IRInstr ir) {
-    
-    	if (ir instanceof IRAssign a) {
-    	    if ("=".equals(a.op)) {
-    	        return a.dst + " = " + a.src1;
-    	    }
-    	    if (a.src2 != null) {
-    	        return a.dst + " = " + a.op + " " + a.src1 + ", " + a.src2;
-    	    } else {
-    	        return a.dst + " = " + a.op + " " + a.src1;
-    	    }
-    	}
+    static List<String> formatBlockIR(BasicBlock bb) {
+        List<String> out = new ArrayList<>();
 
+        for (int i = 0; i < bb.ir.size(); i++) {
+            IRInstr ir = bb.ir.get(i);
+
+            // Fold:
+            //   call Foo(...)
+            //   tX = !arg0        OR tX = !<callResultTemp>
+            //   if tX goto A else B
+            if (i + 2 < bb.ir.size()
+                    && ir instanceof IRCall call
+                    && bb.ir.get(i + 1) instanceof IRAssign a
+                    && bb.ir.get(i + 2) instanceof IRCJump c
+                    && isNegatedCondAssign(a, c.cond)
+                    && isCallResultSource(call, a.src1)) {
+
+                out.add(formatNegatedCallJump(call, c));
+                i += 2;
+                continue;
+            }
+
+            // Fold:
+            //   tX = !expr
+            //   if tX goto A else B
+            if (i + 1 < bb.ir.size()
+                    && ir instanceof IRAssign a
+                    && bb.ir.get(i + 1) instanceof IRCJump c
+                    && isNegatedCondAssign(a, c.cond)) {
+
+                out.add(formatNegatedJump(a.src1, c));
+                i += 1;
+                continue;
+            }
+
+            out.add(formatIR(ir));
+        }
+
+        return out;
+    }
+
+    static boolean isNegatedCondAssign(IRAssign a, IRValue cond) {
+        return "!".equals(a.op)
+                && a.src2 == null
+                && sameValue(a.dst, cond);
+    }
+
+    static boolean isCallResultSource(IRCall call, IRValue v) {
+        // Native calls often feed EQZ through implicit arg0
+        if (call.result == null) {
+            return isArg0(v);
+        }
+
+        // Non-native / explicit-result calls can feed the temp directly
+        return sameValue(call.result, v);
+    }
+
+    static boolean isArg0(IRValue v) {
+        return v instanceof IRStackArg a && a.index == 0;
+    }
+
+    static boolean sameValue(IRValue a, IRValue b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+
+        if (a instanceof IRTemp ta && b instanceof IRTemp tb) {
+            return ta.id == tb.id;
+        }
+        if (a instanceof IRStackArg sa && b instanceof IRStackArg sb) {
+            return sa.index == sb.index;
+        }
+        if (a instanceof IRLocal la && b instanceof IRLocal lb) {
+            return la.index == lb.index;
+        }
+        if (a instanceof IRConst ca && b instanceof IRConst cb) {
+            return java.util.Objects.equals(ca.value, cb.value);
+        }
+
+        return false;
+    }
+
+    static String formatNegatedCallJump(IRCall call, IRCJump c) {
+        return "if (!" + formatCallExpr(call) + ") goto "
+                + formatTarget(c.trueTarget)
+                + " else goto "
+                + formatTarget(c.falseTarget);
+    }
+
+    static String formatNegatedJump(IRValue value, IRCJump c) {
+        return "if (!" + formatUnaryOperand(value) + ") goto "
+                + formatTarget(c.trueTarget)
+                + " else goto "
+                + formatTarget(c.falseTarget);
+    }
+
+    static String formatTarget(BasicBlock bb) {
+        return (bb != null)
+                ? "0x" + Integer.toHexString(bb.startOffset)
+                : "<unknown>";
+    }
+
+    static String formatValue(IRValue v) {
+        return v == null ? "<null>" : v.toString();
+    }
+
+    static String formatUnaryOperand(IRValue v) {
+        String s = formatValue(v);
+
+        if (v instanceof IRTemp || v instanceof IRStackArg || v instanceof IRLocal || v instanceof IRConst) {
+            return s;
+        }
+
+        return "(" + s + ")";
+    }
+
+    static String formatCallExpr(IRCall c) {
+        return formatCallName(c) + "(" + String.join(", ", formatCallArgs(c)) + ")";
+    }
+
+    static String formatCallName(IRCall c) {
+        NativeSignature sig = nativeSigs.get(c.target);
+
+        if (c.target == -1) {
+            return "internal_alloc";
+        }
+
+        if (c.isNative) {
+            if (sig != null) {
+                return sig.name;
+            }
+            return nativeNames.getOrDefault(
+                    c.target,
+                    String.format("native_0x%X", c.target)
+            );
+        }
+
+        return String.format("func_0x%X", c.target);
+    }
+
+    static List<String> formatCallArgs(IRCall c) {
+        NativeSignature sig = nativeSigs.get(c.target);
+        List<String> args = new ArrayList<>();
+
+        for (int i = 0; i < c.args.size(); i++) {
+            IRValue v = c.args.get(i);
+
+            if (sig != null
+                    && v instanceof IRConst k
+                    && sig.argEnums.containsKey(i)) {
+
+                String sym = sig.argEnums.get(i).get(k.value);
+                if (sym != null) {
+                    args.add(sym);
+                    continue;
+                }
+            }
+
+            args.add(formatValue(v));
+        }
+
+        return args;
+    }
+    
+    static String formatIR(IRInstr ir) {
+
+        if (ir instanceof IRAssign a) {
+            if ("=".equals(a.op)) {
+                return formatValue(a.dst) + " = " + formatValue(a.src1);
+            }
+
+            if ("!".equals(a.op) && a.src2 == null) {
+                return formatValue(a.dst) + " = !" + formatUnaryOperand(a.src1);
+            }
+
+            if ("NEG".equals(a.op) && a.src2 == null) {
+                return formatValue(a.dst) + " = -" + formatUnaryOperand(a.src1);
+            }
+
+            if (a.src2 != null) {
+                return formatValue(a.dst) + " = " + a.op + " " + formatValue(a.src1) + ", " + formatValue(a.src2);
+            }
+
+            return formatValue(a.dst) + " = " + a.op + " " + formatValue(a.src1);
+        }
 
         if (ir instanceof IRCJump c) {
-            String t =
-                (c.trueTarget != null)
-                ? "0x" + Integer.toHexString(c.trueTarget.startOffset)
-                : "<unknown>";
-
-            String f =
-                (c.falseTarget != null)
-                ? "0x" + Integer.toHexString(c.falseTarget.startOffset)
-                : "<unknown>";
-
-            return "if " + c.cond + " goto " + t + " else " + f;
+            return "if " + formatValue(c.cond)
+                    + " goto " + formatTarget(c.trueTarget)
+                    + " else goto " + formatTarget(c.falseTarget);
         }
 
         if (ir instanceof IRJump j) {
-            String t =
-                (j.target != null)
-                ? "0x" + Integer.toHexString(j.target.startOffset)
-                : "<unknown>";
-
-            return "goto " + t;
+            return "goto " + formatTarget(j.target);
         }
 
         if (ir instanceof IRCall c) {
-
-            NativeSignature sig = nativeSigs.get(c.target);
-
-            String name;
-            if (c.target == -1) {
-                name = "internal_alloc";
-            }
-            else if (c.isNative) {
-                if (sig != null) {
-                    name = sig.name; // ✅ USE THE SIGNATURE
-                } else {
-                    name = nativeNames.getOrDefault(
-                        c.target,
-                        String.format("native_0x%X", c.target)
-                    );
-                }
-            }
-            else {
-                name = String.format("func_0x%X", c.target);
-            }
-
-            // ---- argument formatting (enum-aware) ----
-            List<String> args = new ArrayList<>();
-            for (int i = 0; i < c.args.size(); i++) {
-                IRValue v = c.args.get(i);
-
-                if (sig != null &&
-                    v instanceof IRConst k &&
-                    sig.argEnums.containsKey(i)) {
-
-                    String sym = sig.argEnums.get(i).get(k.value);
-                    if (sym != null) {
-                        args.add(sym);
-                        continue;
-                    }
-                }
-
-                args.add(v.toString());
-            }
-
+            String expr = formatCallExpr(c);
             return c.result != null
-                ? c.result + " = call " + name + "(" + String.join(", ", args) + ")"
-                : "call " + name + "(" + String.join(", ", args) + ")";
+                    ? formatValue(c.result) + " = call " + expr
+                    : "call " + expr;
         }
-
 
         if (ir instanceof IRReturn) {
             return "return";
@@ -1489,6 +1606,7 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
         return ir.toString();
     }
 
+    
     static final class IRLocal extends IRValue {
         final int index;
         IRLocal(int index) { this.index = index; }
@@ -1577,7 +1695,7 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
     
     static int canonicalTargetOffset(List<DecodedInstr> instrs, int rawTargetOff) {
         for (DecodedInstr di : instrs) {
-            if (di.offset >= rawTargetOff) {
+            if (di.offset == rawTargetOff) {
                 return di.offset;
             }
         }
