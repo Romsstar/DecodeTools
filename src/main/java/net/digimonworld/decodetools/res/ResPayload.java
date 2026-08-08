@@ -2,6 +2,7 @@ package net.digimonworld.decodetools.res;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +35,7 @@ import net.digimonworld.decodetools.res.payload.VCTMPayload;
 import net.digimonworld.decodetools.res.payload.VoidPayload;
 import net.digimonworld.decodetools.res.payload.XDIOPayload;
 import net.digimonworld.decodetools.res.payload.XTVOPayload;
+import net.digimonworld.decodetools.arcv.MARVEntry;
 
 /**
  * The abstract superclass for all different entry types inside a Re:Digitize/Decode Resource file.
@@ -183,6 +185,31 @@ public abstract class ResPayload {
         }
     }
 
+    public void repackWithMARV(File file) {
+        if (getType() == Payload.GENERIC || getType() == Payload.BTX) {
+            Main.LOGGER.log(Level.WARNING, "Refusing to MARV-wrap GENERIC/BTX.");
+            return;
+        }
+        repack(file);  // writes normal KCAP+DATA, untouched
+
+        // compute MARV from structure
+        DummyResData resData = new DummyResData();
+        fillDummyResData(resData);
+        MARVEntry marv = new MARVEntry(getSizeOfRoot(), resData.getSize(),
+                                       resData.getDataEntries(), file.getName().endsWith(".img"));
+
+        // prepend header
+        try {
+        	byte[] payload = java.nio.file.Files.readAllBytes(file.toPath());
+        	try (java.io.OutputStream os = new java.io.FileOutputStream(file)) {
+        	    os.write(marv.getBytes());
+        	    os.write(payload);
+        	}
+        } catch (IOException e) {
+            Main.LOGGER.log(Level.WARNING, "Exception MARV-wrapping.", e);
+        }
+    }
+    
     @Override
     public String toString() {
         return getType().name();

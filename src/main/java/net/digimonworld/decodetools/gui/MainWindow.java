@@ -47,6 +47,9 @@ import net.digimonworld.decodetools.res.ResPayload;
 import net.digimonworld.decodetools.res.ResPayload.Payload;
 import net.digimonworld.decodetools.res.kcap.HSMPKCAP;
 import net.digimonworld.decodetools.res.payload.BTXPayload;
+import net.digimonworld.decodetools.res.kcap.AbstractKCAP;
+import net.digimonworld.decodetools.res.kcap.AbstractKCAP.KCAPType;
+import net.digimonworld.decodetools.res.kcap.TDTMKCAP;
 
 public class MainWindow extends JFrame implements Observer {
     private static final long serialVersionUID = -8269477952146086450L;
@@ -61,10 +64,12 @@ public class MainWindow extends JFrame implements Observer {
     private JMenuItem mntmSaveFile = new JMenuItem("Save File");
     private JMenuItem mntmExit = new JMenuItem("Exit");
     private JMenuItem mntmSave = new JMenuItem("Save");
+    private JMenuItem mntmSaveAsMARV = new JMenuItem("Save As (Loose/MARV)");
     private JMenu mnArcv = new JMenu("ARCV");
     private JMenuItem mntmRebuildArcv = new JMenuItem("Rebuild ARCV");
     private JMenuItem mntmRebuildUncompressedArcv = new JMenuItem("Rebuild Uncompressed ARCV");
     private JMenu mnTools = new JMenu("Tools");
+    private final JMenuItem mntmDumpTDTM = new JMenuItem("Dump TDTM Headers");
     private JMenuItem mntmReexportMipmaps = new JMenuItem("Re-Export Malformatted Files");
     private JTabbedPane tabbedPane = new JTabbedPane(SwingConstants.TOP);
     private final JMenuItem mntmMassStringReplacer = new JMenuItem("Mass String Replacer");
@@ -105,12 +110,17 @@ public class MainWindow extends JFrame implements Observer {
         menuBar.add(mnFile);
         mntmLoadFile.setAction(new LoadAction());
         mntmSaveFile.setAction(new SaveAsAction());
+        mntmSaveAsMARV.setAction(new SaveAsMARVAction());
         mntmExit.setAction(new FunctionAction("Exit", a -> dispose()));
         mntmSave.setAction(new SaveAction());
 
+        mntmDumpTDTM.setAction(new DumpTDTMAction());
+        mnTools.add(mntmDumpTDTM);
+        
         mnFile.add(mntmLoadFile);
-        mnFile.add(mntmSaveFile);
-        mnFile.add(mntmSave);
+        mnFile.add(mntmSaveFile);   
+        mnFile.add(mntmSaveAsMARV);
+        mnFile.add(mntmSave);        
         mnFile.add(mntmExit);
 
         menuBar.add(mnArcv);
@@ -170,6 +180,7 @@ public class MainWindow extends JFrame implements Observer {
         addLookAndFeelOptions();
     }
 
+    
     private void addLookAndFeelOptions() {
         LookAndFeelInfo[] info = UIManager.getInstalledLookAndFeels();
 
@@ -226,6 +237,26 @@ public class MainWindow extends JFrame implements Observer {
         @Override
         public void actionPerformed(ActionEvent e) {
             getModel().getSelectedResource().repack(getModel().getSelectedFile());
+        }
+    }
+    
+    class SaveAsMARVAction extends AbstractAction {
+        private static final long serialVersionUID = 1L;
+
+        public SaveAsMARVAction() {
+            super("Save As (Loose/MARV)");
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            JFileChooser fileDialogue = new JFileChooser("./Output");
+            fileDialogue.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            fileDialogue.showSaveDialog(null);
+
+            if (fileDialogue.getSelectedFile() == null)
+                return;
+
+            getModel().getSelectedResource().repackWithMARV(fileDialogue.getSelectedFile());
         }
     }
 
@@ -449,6 +480,46 @@ public class MainWindow extends JFrame implements Observer {
         }
     }
 
+    class DumpTDTMAction extends AbstractAction {
+        private static final long serialVersionUID = 1L;
+ 
+        public DumpTDTMAction() {
+            super("Dump TDTM Headers");
+        }
+ 
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            ResPayload root = getModel().getSelectedResource();
+            if (root == null) {
+                JOptionPane.showMessageDialog(MainWindow.this, "No file loaded.");
+                return;
+            }
+ 
+            File outDir = new File("./Output");
+            outDir.mkdirs();
+ 
+            int dumped = 0;
+            // find every TDTM KCAP anywhere in the loaded resource tree
+            for (ResPayload kcap : root.getElementsWithType(Payload.KCAP)) {
+                if (!(kcap instanceof AbstractKCAP))
+                    continue;
+                AbstractKCAP akcap = (AbstractKCAP) kcap;
+                if (akcap.getKCAPType() != KCAPType.TDTM)
+                    continue;
+ 
+                TDTMKCAP tdtm = (TDTMKCAP) akcap;
+                String path = new File(outDir, "dump_" + dumped + ".txt").getPath();
+                String base = new File(outDir, "dump_" + dumped).getPath();
+                tdtm.dumpAnim(base + "tdtm_header.txt");
+                tdtm.dumpQstmDetail(base + "_qstm.txt");
+                tdtm.dumpLoopClosure(base + "_loop.txt");
+                dumped++;
+            }
+ 
+            JOptionPane.showMessageDialog(MainWindow.this,
+                dumped + " TDTM header dump(s) written to ./Output/");
+        }
+    }
     class ReExportAction extends AbstractAction {
         private static final long serialVersionUID = -7894935184753933528L;
 

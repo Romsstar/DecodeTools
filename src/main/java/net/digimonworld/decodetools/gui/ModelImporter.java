@@ -614,11 +614,21 @@ public class ModelImporter extends PayloadPanel {
         
            AIMesh mesh = AIMesh.create(scene.mMeshes().get(y));
            String meshName = mesh.mName().dataString();
-           String baseName = meshName.contains(".")
-               ? meshName.substring(0, meshName.lastIndexOf('.'))
-               : meshName;
-           int gltfIndex = gltfMeshIndexByName.getOrDefault(baseName,
-               gltfMeshIndexByName.getOrDefault(meshName, -1));
+
+           String baseName = meshName;
+
+           // strip Assimp primitive suffix: _sub0, _sub1, ...
+           baseName = baseName.replaceFirst("_sub\\d+$", "");
+
+           // existing dot suffix handling if needed
+           if (baseName.contains(".")) {
+               baseName = baseName.substring(0, baseName.lastIndexOf('.'));
+           }
+
+           int gltfIndex = gltfMeshIndexByName.getOrDefault(
+               baseName,
+               gltfMeshIndexByName.getOrDefault(meshName, -1)
+           );
            int id = getMeshExtra(importedGltfModel, gltfIndex, "id", Integer.class)
                    .orElse(-1); 
            
@@ -791,7 +801,18 @@ public class ModelImporter extends PayloadPanel {
 
                 vertices.add(vertex);
             }
+            
+            System.out.println(
+            	    meshName +
+            	    " | gltfIndex=" + gltfIndex +
+            	    " | material=" + materialIdOpt +
+            	    " | texSlots=" + texSlots
+            	);
 
+            	if (!texSlots.isEmpty()) {
+            	    System.out.println("ADDING HSEM TEXTURE ENTRY");
+            	    hsemEntries.add(new HSEMTextureEntry(texSlots));
+            	}
             Map<Short, Short> boneMapping = processBoneMappingAndWeights(mesh, vertices, idxAttrib, wgtAttrib, tnoj);
             Map<Short, Short> prev =
             	    prevBoneMappingById.computeIfAbsent(id, k -> new HashMap<>());
@@ -890,7 +911,7 @@ public class ModelImporter extends PayloadPanel {
         rootKCAP.setXTVP(new XTVPKCAP(rootKCAP, xtvoPayload));
         if (!tnoj.isEmpty()) {
             rootKCAP.setTNOJ(new TNOJKCAP(rootKCAP, tnoj));        
-         //   loadAnimations();
+            loadAnimations();
         }
     }
 
@@ -970,7 +991,7 @@ public class ModelImporter extends PayloadPanel {
             }
 
             if (index > -1 && index < 14) {
-                TDTMKCAP newTDTM = new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float)spinner.getValue());
+                TDTMKCAP newTDTM = new TDTMKCAP(rootKCAP.getParent(), animation, jointNodes, (float)1.0);
 
                 if (index < tdtmKCAPs.size()) {
                     tdtmKCAPs.set(index, newTDTM);
@@ -1122,13 +1143,19 @@ public class ModelImporter extends PayloadPanel {
             Quaternionf rot = new Quaternionf(rotation.x, rotation.y, rotation.z, rotation.w);
             // 90° rotation quaternion component
             Quaternionf stripConv = new Quaternionf((float)(Math.sqrt(2.0) / 2.0), 0, 0, (float)(Math.sqrt(2.0) / 2.0));
+        
             rot.mul(stripConv);
-            float[] rotationArray = {
-                Math.abs(rot.x) < 1e-5f ? 0.0f : rot.x,
-                Math.abs(rot.y) < 1e-5f ? 0.0f : rot.y,
-                Math.abs(rot.z) < 1e-5f ? 0.0f : rot.z,
-                Math.abs(rot.w) < 1e-5f ? 0.0f : rot.w
-            };
+            rot.normalize();   // ensure unit before any cleanup
+
+            // zero only truly-negligible components, then re-normalize so the
+            // quaternion stays unit-length (prevents component > 1.0 and skin drift)
+            if (Math.abs(rot.x) < 1e-5f) rot.x = 0f;
+            if (Math.abs(rot.y) < 1e-5f) rot.y = 0f;
+            if (Math.abs(rot.z) < 1e-5f) rot.z = 0f;
+            if (Math.abs(rot.w) < 1e-5f) rot.w = 0f;
+            rot.normalize();
+
+            float[] rotationArray = { rot.x, rot.y, rot.z, rot.w };
          
             float[] scaleArray = { 1.0f, 1.0f, 1.0f, 0.0f };
           
@@ -1146,8 +1173,8 @@ public class ModelImporter extends PayloadPanel {
                 inverseBind = computeGlobalTransform(nodes).invert();
             }
 
-          //  float[] ibpm = matrixToArray(transposeMatrix(inverseBind));
-            float[] ibpm = convertMatrixYUpToZUp(matrixToArray(transposeMatrix(inverseBind)));
+            float[] ibpm = matrixToArray(transposeMatrix(inverseBind));
+     //       float[] ibpm = matrixToArray(transposeMatrix(convertMatrixYUpToZUpMatrix(inverseBind)));
             tnojList.add(new TNOJPayload(
                 null,
                 parentId,
@@ -1164,13 +1191,15 @@ public class ModelImporter extends PayloadPanel {
 
         return tnojList;
     }
-
-    private static float[] convertMatrixYUpToZUp(float[] m) {
-        float[] r = new float[16];
-        r[0]  = m[0];   r[1]  = -m[2];  r[2]  = m[1];   r[3]  = m[3];
-        r[4]  = m[4];   r[5]  = -m[6];  r[6]  = m[5];   r[7]  = m[7];
-        r[8]  = m[8];   r[9]  = -m[10]; r[10] = m[9];   r[11] = m[11];
-        r[12] = m[12];  r[13] = -m[14]; r[14] = m[13];  r[15] = m[15];
+    
+    private static Matrix4f convertMatrixYUpToZUpMatrix(Matrix4f m) {
+        // swap Y and Z rows/columns on the matrix directly
+        Matrix4f r = new Matrix4f(m);
+        // negate and swap Y/Z columns
+        r.m01(m.m02()); r.m02(-m.m01());
+        r.m11(m.m12()); r.m12(-m.m11());
+        r.m21(m.m22()); r.m22(-m.m21());
+        r.m31(m.m32()); r.m32(-m.m31());
         return r;
     }
     

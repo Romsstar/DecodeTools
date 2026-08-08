@@ -156,24 +156,29 @@ public class TDTMKCAP extends AbstractKCAP {
 
             }
 
+         // ===== TRANSLATION  (unknown1 = 2; collapse static to QSTM00) =====
             QSTMPayload positionQSTM = null;
             VCTMPayload positionVCTM = null;
 
             if (posData.size() > 0) {
-                if (posData.size() < 2) {
-                        positionQSTM = new QSTMPayload(this, posData.get(0));
-                        qstm.add(positionQSTM);
-                        tdtmEntry.add(new TDTMEntry(TDTMMode.TRANSLATION, (byte)0x10, jointId, qstmCount));
-                        qstmCount++;
-                    
-                }
-                else {
+                final AIVectorKey p0 = posData.get(0);
+                boolean posStatic = posData.stream().allMatch(k ->
+                    Math.abs(k.mValue().x() - p0.mValue().x()) < 1e-5f &&
+                    Math.abs(k.mValue().y() - p0.mValue().y()) < 1e-5f &&
+                    Math.abs(k.mValue().z() - p0.mValue().z()) < 1e-5f);
+
+                if (posData.size() < 2 || posStatic) {
+                    positionQSTM = new QSTMPayload(this, posData.get(0)); // unknown1 = 2 (default)
+                    qstm.add(positionQSTM);
+                    tdtmEntry.add(new TDTMEntry(TDTMMode.TRANSLATION, (byte) 0x10, jointId, qstmCount));
+                    qstmCount++;
+                } else {
                     positionQSTM = new QSTMPayload(this, vctmCount);
                     qstm.add(positionQSTM);
-                    tdtmEntry.add(new TDTMEntry(TDTMMode.TRANSLATION, (byte)0x10, jointId, qstmCount));
+                    tdtmEntry.add(new TDTMEntry(TDTMMode.TRANSLATION, (byte) 0x10, jointId, qstmCount));
                     qstmCount++;
 
-                    positionVCTM = new VCTMPayload(this, posData, (float)animation.mTicksPerSecond(), 1);
+                    positionVCTM = new VCTMPayload(this, posData, (float) animation.mTicksPerSecond(), 1);
                     vctm.add(positionVCTM);
                     vctmCount++;
                 }
@@ -187,28 +192,24 @@ public class TDTMKCAP extends AbstractKCAP {
              }
 
 
+         // ===== ROTATION  (unknown1 = 4; collapse static to QSTM00) =====
             QSTMPayload rotationQSTM = null;
             VCTMPayload rotationVCTM = null;
 
             if (rotData.size() > 0) {
+                // vanilla NEVER stores rotation as static QSTM00 — always a VCTM.
                 if (rotData.size() < 2) {
-
-                        rotationQSTM = new QSTMPayload(this, rotData.get(0));
-                        qstm.add(rotationQSTM);
-                        tdtmEntry.add(new TDTMEntry(TDTMMode.ROTATION, (byte)0x10, jointId, qstmCount));
-                        qstmCount++;
-                        }
-                
-                else {
-                    rotationQSTM = new QSTMPayload(this, vctmCount);
-                    qstm.add(rotationQSTM);
-                    tdtmEntry.add(new TDTMEntry(TDTMMode.ROTATION, (byte)0x10, jointId, qstmCount));
-                    qstmCount++;
-
-                    rotationVCTM = new VCTMPayload(this, rotData, (float)animation.mTicksPerSecond());
-                    vctm.add(rotationVCTM);
-                    vctmCount++;
+                    rotData.add(rotData.get(0)); // duplicate single key into a 2-frame track
                 }
+                rotationQSTM = new QSTMPayload(this, vctmCount);
+                rotationQSTM.setUnknown1((short) 4);
+                qstm.add(rotationQSTM);
+                tdtmEntry.add(new TDTMEntry(TDTMMode.ROTATION, (byte) 0x10, jointId, qstmCount));
+                qstmCount++;
+
+                rotationVCTM = new VCTMPayload(this, rotData, (float) animation.mTicksPerSecond());
+                vctm.add(rotationVCTM);
+                vctmCount++;
             }
             
             //get Scaling Keyframes
@@ -932,7 +933,166 @@ public class TDTMKCAP extends AbstractKCAP {
             dest.writeInteger(qstmId);
         }
     }
-    
+   
+    public void dumpQstmDetail(String filePath) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("================ ").append(filePath).append(" (QSTM detail) ================\n");
+        sb.append(String.format("TDTM  time1=%.1f time2=%.1f time3=%.1f time4=%.1f  | tdtm=%d qstm=%d vctm=%d%n",
+            time1, time2, time3, time4, tdtmEntry.size(), qstm.size(), vctm.size()));
+ 
+        for (int e = 0; e < tdtmEntry.size(); e++) {
+            TDTMEntry te = tdtmEntry.get(e);
+            QSTMPayload qp = qstm.get(te.getqstmId());
+ 
+            sb.append(String.format("[%02d] joint=%-3d %-12s qstmId=%-3d  unknown1=%d  entries=%d%n",
+                e, te.getjointId(), te.getMode(), te.getqstmId(),
+                qp.getUnknown1(), qp.getEntries().size()));
+ 
+            // dump each sub-entry inside this QSTM
+            for (int s = 0; s < qp.getEntries().size(); s++) {
+                net.digimonworld.decodetools.res.payload.qstm.QSTMEntry qe = qp.getEntries().get(s);
+                int id = qe.getType().getId();
+ 
+                switch (id) {
+                    case 0: {
+                        net.digimonworld.decodetools.res.payload.qstm.QSTM00Entry q0 =
+                            (net.digimonworld.decodetools.res.payload.qstm.QSTM00Entry) qe;
+                        sb.append(String.format("       QSTM00  axis=%s mode=%d values=%s%n",
+                            q0.getAxis(), q0.getMode(), q0.getValues()));
+                        break;
+                    }
+                    case 1: {
+                        net.digimonworld.decodetools.res.payload.qstm.QSTM01Entry q1 =
+                            (net.digimonworld.decodetools.res.payload.qstm.QSTM01Entry) qe;
+                        sb.append(String.format("       QSTM01  copy src=%d dest=%d mode=%d%n",
+                            q1.getSrcId(), q1.getDestId(), q1.getMode()));
+                        break;
+                    }
+                    case 2: {
+                        net.digimonworld.decodetools.res.payload.qstm.QSTM02Entry q2 =
+                            (net.digimonworld.decodetools.res.payload.qstm.QSTM02Entry) qe;
+                        int vid = q2.getVctmId();
+                        int vEntries = (vid >= 0 && vid < vctm.size())
+                            ? vctm.get(vid).getNumEntries() : -1;
+                        sb.append(String.format("       QSTM02  -> VCTM #%d (axis=%s, %d frames)%n",
+                            vid, q2.getAxis(), vEntries));
+                        break;
+                    }
+                    default:
+                        sb.append(String.format("       QSTM?? id=%d%n", id));
+                }
+            }
+        }
+ 
+        try (java.io.PrintWriter out = new java.io.PrintWriter(new java.io.FileWriter(filePath))) {
+            out.print(sb);
+        } catch (java.io.IOException ex) {
+            Main.LOGGER.warning("Failed to write QSTM detail to " + filePath + ": " + ex.getMessage());
+        }
+    }
+  
+    public void dumpLoopClosure(String filePath) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("================ ").append(filePath).append(" (loop closure) ================\n");
+        sb.append(String.format("TDTM time1=%.1f time2=%.1f time3=%.1f time4=%.1f%n%n",
+            time1, time2, time3, time4));
+ 
+        for (int e = 0; e < tdtmEntry.size(); e++) {
+            TDTMEntry te = tdtmEntry.get(e);
+            QSTMPayload qp = qstm.get(te.getqstmId());
+ 
+            // only VCTM-backed tracks can fail loop closure; constants can't
+            for (net.digimonworld.decodetools.res.payload.qstm.QSTMEntry qe : qp.getEntries()) {
+                if (qe.getType().getId() != 2)
+                    continue; // skip QSTM00/01 (static)
+ 
+                net.digimonworld.decodetools.res.payload.qstm.QSTM02Entry q2 =
+                    (net.digimonworld.decodetools.res.payload.qstm.QSTM02Entry) qe;
+                int vid = q2.getVctmId();
+                if (vid < 0 || vid >= vctm.size())
+                    continue;
+ 
+                VCTMPayload v = vctm.get(vid);
+                int n = v.getNumEntries();
+                if (n < 2)
+                    continue;
+ 
+                int comps = v.getComponentCount();
+                int bpc = v.GetValueBytes();
+ 
+                float[] first = new float[comps];
+                float[] last  = new float[comps];
+ 
+                Byte[][] f0 = v.getRawFrameData(0);
+                Byte[][] fN = v.getRawFrameData(n - 1);
+ 
+                for (int c = 0; c < comps; c++) {
+                    byte[] b0 = new byte[bpc];
+                    byte[] bN = new byte[bpc];
+                    for (int a = 0; a < bpc; a++) {
+                        b0[a] = f0[c][a].byteValue();
+                        bN[a] = fN[c][a].byteValue();
+                    }
+                    first[c] = v.convertBytesToValue(b0);
+                    last[c]  = v.convertBytesToValue(bN);
+                }
+ 
+                StringBuilder deltas = new StringBuilder();
+                float maxDelta = 0f;
+                for (int c = 0; c < comps; c++) {
+                    float d = Math.abs(last[c] - first[c]);
+                    maxDelta = Math.max(maxDelta, d);
+                    deltas.append(String.format("%.6f ", d));
+                }
+ 
+                String flag = maxDelta > 0.01f ? "  <<< LOOP NOT CLOSED" : "";
+                sb.append(String.format(
+                    "[%02d] joint=%-3d %-12s VCTM#%d n=%d  maxDelta=%.6f  perComp=[ %s]%s%n",
+                    e, te.getjointId(), te.getMode(), vid, n, maxDelta, deltas.toString().trim() + " ", flag));
+            }
+        }
+ 
+        try (java.io.PrintWriter out = new java.io.PrintWriter(new java.io.FileWriter(filePath))) {
+            out.print(sb);
+        } catch (java.io.IOException ex) {
+            Main.LOGGER.warning("Failed to write loop-closure dump: " + ex.getMessage());
+        }
+    }
+    public void dumpAnim(String filePath) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("================ ").append(filePath).append(" ================\n");
+        sb.append(String.format(
+            "TDTM  time1(start)=%.3f  time2(end)=%.3f  time3(loopStart)=%.3f  time4(loopEnd)=%.3f%n",
+            time1, time2, time3, time4));
+        sb.append(String.format(
+            "      tdtmEntries=%d  qstmCount=%d  vctmCount=%d%n",
+            tdtmEntry.size(), qstm.size(), vctm.size()));
+
+        // map each TDTM entry to its QSTM, and if that QSTM is a VCTM ref, dump it
+        for (int e = 0; e < tdtmEntry.size(); e++) {
+            TDTMEntry te = tdtmEntry.get(e);
+            sb.append(String.format(
+                "  [%02d] mode=%-11s transform=0x%02X joint=%d qstmId=%d%n",
+                e, te.getMode(), te.getTransformType() & 0xFF,
+                te.getjointId(), te.getqstmId()));
+        }
+
+        // dump every VCTM track header
+        sb.append("  ---- VCTM tracks ----\n");
+        for (int v = 0; v < vctm.size(); v++) {
+            sb.append(String.format("  VCTM #%d:%n", v));
+            // indent the multi-line header string
+            for (String line : vctm.get(v).headerString().split("\n"))
+                sb.append("    ").append(line).append("\n");
+        }
+
+        try (java.io.PrintWriter out = new java.io.PrintWriter(
+                new java.io.FileWriter(filePath))) {
+            out.print(sb);
+        } catch (java.io.IOException ex) {
+            Main.LOGGER.warning("Failed to write anim dump to " + filePath + ": " + ex.getMessage());
+        }
+    }
 
    public enum TDTMMode {
         TRANSLATION,

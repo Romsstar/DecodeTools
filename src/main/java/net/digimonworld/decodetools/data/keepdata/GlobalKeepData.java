@@ -48,12 +48,12 @@ public class GlobalKeepData {
     private final GenericPayload deviShop;
     private final GenericPayload unk14;
     private final GenericPayload unk15;
-    private final GenericPayload unk16;
+    private final GenericPayload keyItemsOrder;
     private final GenericPayload medalRank;
     private final GenericPayload unk17;
-    private final GenericPayload unk18;
+    private final GenericPayload glossaryOrder;
     private final GenericPayload unk19;
-    private final GenericPayload unk20;
+    private final GenericPayload mailOrder;
     private final List<AccessoryOrder> accessoriesOrder;
     private final GenericPayload storageCards;
     private final AbstractKCAP unk22;
@@ -104,12 +104,12 @@ public class GlobalKeepData {
         this.deviShop = (GenericPayload) kcap.get(32);
         this.unk14 = (GenericPayload) kcap.get(33);
         this.unk15 = (GenericPayload) kcap.get(34);
-        this.unk16 = (GenericPayload) kcap.get(35);
+        this.keyItemsOrder = (GenericPayload) kcap.get(35);
         this.medalRank = (GenericPayload) kcap.get(36);
         this.unk17 = (GenericPayload) kcap.get(37);
-        this.unk18 = (GenericPayload) kcap.get(38);
+        this.glossaryOrder = (GenericPayload) kcap.get(38);
         this.unk19 = (GenericPayload) kcap.get(39);
-        this.unk20 = (GenericPayload) kcap.get(40);
+        this.mailOrder = (GenericPayload) kcap.get(40); 
         this.accessoriesOrder = convertGenericToList((GenericPayload) kcap.get(41), AccessoryOrder::new);
         this.storageCards = (GenericPayload) kcap.get(42);
         this.unk22 = (AbstractKCAP) kcap.get(43);
@@ -163,12 +163,12 @@ public class GlobalKeepData {
         entries.add(deviShop);
         entries.add(unk14);
         entries.add(unk15);
-        entries.add(unk16);
+        entries.add(keyItemsOrder);
         entries.add(medalRank);
         entries.add(unk17);
-        entries.add(unk18);
+        entries.add(glossaryOrder);
         entries.add(unk19);
-        entries.add(unk20);
+        entries.add(mailOrder);
         entries.add(convertListToGeneric(accessoriesOrder));
         entries.add(storageCards);
         entries.add(unk22); // true

@@ -116,6 +116,9 @@ public class QSTMPayload extends ResPayload {
         return Payload.QSTM;
     }
     
+    public void setUnknown1(short unknown1) {
+        this.unknown1 = unknown1;
+    }
     @Override
     public void writeKCAP(Access dest, ResData dataStream) {
         dest.writeInteger(getType().getMagicValue());

@@ -199,43 +199,52 @@ public class VCTMPayload extends ResPayload {
             quats[i][3] = key.mValue().w();
         }
         
-        // Ensure consistent quaternion orientation:
-        // For each keyframe (from the second onward), check the dot product with the previous keyframe.
-        // If negative, flip the quaternion.
+        short[][] packed = new short[numEntries][4];
+        for (int i = 0; i < numEntries; i++) {
+            packed[i][0] = toFloat16(quats[i][0]);
+            packed[i][1] = toFloat16(quats[i][1]);
+            packed[i][2] = toFloat16(quats[i][2]);
+            packed[i][3] = toFloat16(quats[i][3]);
+        }
+
         for (int i = 1; i < numEntries; i++) {
-            float dot = quats[i-1][0] * quats[i][0] +
-                        quats[i-1][1] * quats[i][1] +
-                        quats[i-1][2] * quats[i][2] +
-                        quats[i-1][3] * quats[i][3];
-            if (dot < 0) {
+            float p0x = Float.float16ToFloat(packed[i-1][0]);
+            float p0y = Float.float16ToFloat(packed[i-1][1]);
+            float p0z = Float.float16ToFloat(packed[i-1][2]);
+            float p0w = Float.float16ToFloat(packed[i-1][3]);
+            float p1x = Float.float16ToFloat(packed[i][0]);
+            float p1y = Float.float16ToFloat(packed[i][1]);
+            float p1z = Float.float16ToFloat(packed[i][2]);
+            float p1w = Float.float16ToFloat(packed[i][3]);
+
+            float dot = p0x*p1x + p0y*p1y + p0z*p1z + p0w*p1w;
+            if (dot < 0f) {
                 quats[i][0] = -quats[i][0];
                 quats[i][1] = -quats[i][1];
                 quats[i][2] = -quats[i][2];
                 quats[i][3] = -quats[i][3];
+                packed[i][0] = toFloat16(quats[i][0]);
+                packed[i][1] = toFloat16(quats[i][1]);
+                packed[i][2] = toFloat16(quats[i][2]);
+                packed[i][3] = toFloat16(quats[i][3]);
             }
         }
-        
-        // Convert the adjusted quaternions to half-float (FLOAT16) and pack them into bytes.
-        for (int i = 0; i < numEntries; i++) {       
-            short xVal = toFloat16(quats[i][0]);
-            short yVal = toFloat16(quats[i][1]);
-            short zVal = toFloat16(quats[i][2]);
-            short wVal = toFloat16(quats[i][3]);
 
-            byte[] xBytes = { (byte) (xVal), (byte) (xVal >> 8) };
-            byte[] yBytes = { (byte) (yVal), (byte) (yVal >> 8) };
-            byte[] zBytes = { (byte) (zVal), (byte) (zVal >> 8) };
-            byte[] wBytes = { (byte) (wVal), (byte) (wVal >> 8) };
+        for (int i = 0; i < numEntries; i++) {
+            short xVal = packed[i][0];
+            short yVal = packed[i][1];
+            short zVal = packed[i][2];
+            short wVal = packed[i][3];
 
-            byte[] allBytes = {xBytes[0], xBytes[1], yBytes[0], yBytes[1],
-                               zBytes[0], zBytes[1], wBytes[0], wBytes[1]};
-     
+            byte[] allBytes = {
+                (byte) xVal, (byte) (xVal >> 8),
+                (byte) yVal, (byte) (yVal >> 8),
+                (byte) zVal, (byte) (zVal >> 8),
+                (byte) wVal, (byte) (wVal >> 8)
+            };
             data2[i] = new VCTMEntry(allBytes);
         }
-        //Match first+last frame
-    	//if (numEntries > 1) {
-        //data2[numEntries - 1] = new VCTMEntry(data2[0].getData().clone());
-    	//}
+                
     }
 
 
@@ -272,8 +281,8 @@ public class VCTMPayload extends ResPayload {
             interpolationMode = InterpolationMode.LINEAR_3D;
         }
         else if (components == 4) {
-            //interpolationMode = InterpolationMode.LINEAR_4D;
-            interpolationMode = InterpolationMode.SPHERICAL_LINEAR;
+           interpolationMode = InterpolationMode.LINEAR_4D;
+       //    interpolationMode = InterpolationMode.SPHERICAL_LINEAR;
         }
         else {
             interpolationMode = InterpolationMode.LINEAR_1D;
@@ -744,7 +753,46 @@ public class VCTMPayload extends ResPayload {
     }
 
 
+    public String headerString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+            "VCTM  entries=%d  interp=%s  comp=%d %s  timeScale=%s  timeType=%s%n",
+            numEntries,
+            interpolationMode,
+            componentCount,
+            componentType,
+            timeScale,
+            timeType));
+        sb.append(String.format(
+            "      unk4=0x%02X (hi nibble=%d, lo nibble=%d)  unknown4=%f  unknown5=%f%n",
+            unk4 & 0xFF,
+            (unk4 >> 4) & 0xF,
+            unk4 & 0xF,
+            unknown4,
+            unknown5));
+        sb.append(String.format(
+            "      coordSize=%d  entrySize=%d  entriesStart=0x%X  coordStart=0x%X%n",
+            coordSize, entrySize, entriesStart, coordStart));
 
+        // first & last raw time bytes + reconstructed display time
+        if (numEntries > 0) {
+            float[] ft = getFrameTimes();
+            byte firstByte = data1[0].getData()[0];
+            byte lastByte  = data1[numEntries - 1].getData()[0];
+            sb.append(String.format(
+                "      time[0] rawByte=%d display=%.3f   time[last] rawByte=%d display=%.3f%n",
+                firstByte & 0xFF, ft[0],
+                lastByte & 0xFF, ft[numEntries - 1]));
+
+            // first vs last VALUE — are endpoints identical? (loop-closure check)
+            byte[] v0 = data2[0].getData();
+            byte[] vN = data2[numEntries - 1].getData();
+            boolean same = java.util.Arrays.equals(v0, vN);
+            sb.append(String.format(
+                "      endpoint values identical (frame0 == frameLast)? %b%n", same));
+        }
+        return sb.toString();
+    }
 
 
     enum TimeType {

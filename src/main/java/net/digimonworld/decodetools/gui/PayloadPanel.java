@@ -22,6 +22,10 @@ public abstract class PayloadPanel extends JPanel {
     
     public abstract void setSelectedFile(Object file);
     
+      public void setSelectedFile(Object file, int id) {
+        setSelectedFile(file);
+    }
+    
     public static Map<Enum<?>, PayloadPanel> generatePayloadPanels() {
         Map<Enum<?>, PayloadPanel> tempPanels = new HashMap<>();
         

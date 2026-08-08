@@ -24,8 +24,13 @@ public class ImageViewerPanel extends EditorPanel {
         super(model);
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.addListSelectionListener(a -> {
+            if (a.getValueIsAdjusting())
+                return;
+
             GMIOPayload selected = list.getSelectedValue();
-            payload.setSelectedFile(selected);
+            int selectedId = list.getSelectedIndex();
+
+            payload.setSelectedFile(selected, selectedId);
         });
         
         //@formatter:off

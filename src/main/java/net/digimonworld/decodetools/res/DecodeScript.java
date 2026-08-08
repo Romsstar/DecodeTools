@@ -306,6 +306,10 @@ public class DecodeScript {
                 String floatStr = tryFormatFloat(i);
                 if (floatStr != null)
                     return floatStr;
+
+                if (i < 0)
+                    return String.format("0x%08X", i);
+
                 return Integer.toString(i);
             }
             return value.toString();
@@ -314,20 +318,22 @@ public class DecodeScript {
         private static String tryFormatFloat(int bits) {
             float f = Float.intBitsToFloat(bits);
 
-            if (!Float.isFinite(f))
-                return null;
+            if (!Float.isFinite(f)) return null;
+            if (f == 0.0f) return null; // 0 is ambiguous, keep as int
 
-            // Reject tiny denormals / garbage
-            if (Math.abs(f) < 1e-6f && f != 0.0f)
-                return null;
+            float abs = Math.abs(f);
+            if (abs < 1e-3f || abs > 1e7f) return null;
 
-            // Reject absurd magnitudes
-            if (Math.abs(f) > 1e6f)
-                return null;
+            // Heuristic: if the int interpretation is "weird-big" (> ~16M)
+            // but the float interpretation is sane, prefer float.
+            int absInt = Math.abs(bits);
+            if (absInt > 0x01000000) {
+                return trimFloat(f) + "f";
+            }
 
-            // Require either fractional or known float-ish
+            // Small ints: only treat as float if fractional or known constant
             if (f != (int) f || isCommonFloat(bits)) {
-                return String.format("%sf", trimFloat(f));
+                return trimFloat(f) + "f";
             }
 
             return null;
@@ -1540,8 +1546,14 @@ if (a.op.equals("STORE") && src1 instanceof IRConst c) {
         NativeSignature sig = nativeSigs.get(c.target);
         List<String> args = new ArrayList<>();
 
-        for (int i = 0; i < c.args.size(); i++) {
-            IRValue v = c.args.get(i);
+        // Native calls: script push order is reversed vs param_1[] layout
+        List<IRValue> source = c.isNative
+            ? new ArrayList<>(c.args)
+            : c.args;
+        if (c.isNative) Collections.reverse(source);
+
+        for (int i = 0; i < source.size(); i++) {
+            IRValue v = source.get(i);
 
             if (sig != null
                     && v instanceof IRConst k

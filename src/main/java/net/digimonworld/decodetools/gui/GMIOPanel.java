@@ -69,8 +69,16 @@ public class GMIOPanel extends PayloadPanel {
     private final JLabel lblMagFilter = new JLabel("Mag Filter");
     private final JLabel lblFileName = new JLabel("File Name");
     private final JButton btnUpdateName = new JButton("Update Name");
+    private final JLabel lblId = new JLabel("ID");
+    private final JTextField idField = new JTextField();
+    private int selectedGMIOId = -1;
     
     public GMIOPanel(Object selected) {
+        this(selected, -1);
+    }
+
+    public GMIOPanel(Object selected, int id) {
+        this.selectedGMIOId = id;
         setSelectedFile(selected);
         
         exportButton.setAction(new ExportAction());
@@ -165,7 +173,9 @@ public class GMIOPanel extends PayloadPanel {
         
 
         fileNameField.setColumns(10);
-        
+        idField.setColumns(10);
+        idField.setEditable(false);
+        idField.setFocusable(false);
         GroupLayout gl_panel = new GroupLayout(panel);
         gl_panel.setHorizontalGroup(
             gl_panel.createParallelGroup(Alignment.LEADING)
@@ -242,6 +252,15 @@ public class GMIOPanel extends PayloadPanel {
                     .addContainerGap()
                     .addComponent(fileNameField, GroupLayout.DEFAULT_SIZE, 149, Short.MAX_VALUE)
                     .addContainerGap())
+                .addGroup(gl_panel.createSequentialGroup()
+                	    .addContainerGap()
+                	    .addComponent(lblId)
+                	    .addContainerGap(143, Short.MAX_VALUE))
+                	.addGroup(gl_panel.createSequentialGroup()
+                	    .addContainerGap()
+                	    .addComponent(idField, GroupLayout.DEFAULT_SIZE, 149, Short.MAX_VALUE)
+                	    .addContainerGap())
+                	
                 .addGroup(Alignment.TRAILING, gl_panel.createSequentialGroup()
                     .addContainerGap(70, Short.MAX_VALUE)
                     .addComponent(btnUpdateName)
@@ -289,6 +308,10 @@ public class GMIOPanel extends PayloadPanel {
                     .addPreferredGap(ComponentPlacement.RELATED)
                     .addComponent(fileNameField, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
                     .addPreferredGap(ComponentPlacement.RELATED)
+                    .addPreferredGap(ComponentPlacement.RELATED)
+                    .addComponent(lblId)
+                    .addPreferredGap(ComponentPlacement.RELATED)
+                    .addComponent(idField, GroupLayout.PREFERRED_SIZE, GroupLayout.DEFAULT_SIZE, GroupLayout.PREFERRED_SIZE)
                     .addComponent(btnUpdateName)
                     .addContainerGap(46, Short.MAX_VALUE))
         );
@@ -297,11 +320,15 @@ public class GMIOPanel extends PayloadPanel {
         setLayout(groupLayout);
         //@formatter:on
     }
+    public void setSelectedFile(Object file, int id) {
+        this.selectedGMIOId = id;
+        setSelectedFile(file);
+    }
     
     @Override
     public void setSelectedFile(Object file) {
         this.selectedGMIO = file instanceof GMIOPayload ? Optional.ofNullable((GMIOPayload) file) : Optional.empty();
-        
+        idField.setText(selectedGMIOId >= 0 ? Integer.toString(selectedGMIOId) : null);
         fileNameField.setText(selectedGMIO.map(GMIOPayload::getName).orElse(null));
         image.setImage(selectedGMIO.map(GMIOPayload::getImage).orElse(null));
         formatBox.setSelectedItem(selectedGMIO.map(GMIOPayload::getFormat).orElse(null));
